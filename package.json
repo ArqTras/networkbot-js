@@ -1,0 +1,16 @@
+{
+  "name": "networkbot-js",
+  "version": "1.0.0",
+  "description": "A Telegram and Discord bot for Arqma network information.",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "@arqma/arqma-rpc": "^1.0.0",
+    "axios": "^0.27.2",
+    "discord.js": "^14.3.0",
+    "node-telegram-bot-api": "^0.61.0"
+  }
+}
+
