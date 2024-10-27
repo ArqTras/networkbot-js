@@ -31,12 +31,14 @@ This project provides a Telegram and Discord bot for the Arqma cryptocurrency ne
 - `/network`: Get Arqma network statistics
 - `/daemon_info`: Get detailed daemon information
 - `/links`: Display important links for Arqma
+- `/pools`: Display pool list for Arqma
 - `/helpme`: Show available commands
 
 ### Discord
 - `!network`: Get Arqma network statistics
 - `!daemon_info`: Get detailed daemon information
 - `!links`: Display important links for Arqma
+- `!pools`: Display pool links for Arqma
 - `!helpme`: Show available commands
 ```
 
