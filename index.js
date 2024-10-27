@@ -1,17 +1,17 @@
+require('dotenv').config();
 const fs = require('fs');
 const axios = require('axios');
 const { Client, GatewayIntentBits, Partials } = require('discord.js');
 const TelegramBot = require('node-telegram-bot-api');
 const { RPCDaemon } = require('@arqma/arqma-rpc');
 
-// Load tokens from files
-const TELEGRAM_TOKEN = fs.readFileSync('telegram_token.info', 'utf8').trim();
-const DISCORD_TOKEN = fs.readFileSync('discord_token.info', 'utf8').trim();
+const TELEGRAM_TOKEN = process.env.TELEGRAM_TOKEN;
+const DISCORD_TOKEN = process.env.DISCORD_TOKEN;
 
 // Initialize Telegram Bot
 const telegramBot = new TelegramBot(TELEGRAM_TOKEN, { polling: true });
 
-// Initialize Discord Bot with message intents
+// Initialize Discord Bot
 const discordBot = new Client({
     intents: [
         GatewayIntentBits.Guilds,
@@ -26,7 +26,7 @@ const discordBot = new Client({
 const daemonClient = RPCDaemon.createDaemonClient({ url: 'http://127.0.0.1:19994' });
 daemonClient.sslRejectUnauthorized(false);
 
-// Important Links Message
+// Define important links and commands
 const importantLinks = `
 🔗 **Important Links**
 
@@ -40,7 +40,6 @@ const importantLinks = `
 🎮 [Discord](https://chat.arqma.com/)
 `;
 
-// Commands for Telegram and Discord (Escaping characters for Telegram MarkdownV2)
 const telegramCommands = `
 📜 *Available Commands*
 
@@ -61,23 +60,32 @@ const discordCommands = `
 ❓ !helpme - Show this help message
 `;
 
-// Fetch Network Info
+// Caching setup
+let networkCache = null;
+let lastNetworkFetch = 0;
+const CACHE_DURATION = 60000; // Cache for 1 minute
+
+// Data fetching functions
 const fetchNetworkInfo = async () => {
-    try {
-        const response = await axios.get('https://explorer.arqma.com/api/networkinfo');
-        const data = response.data.data;
-        return {
-            height: data.height,
-            hashrate: (data.hash_rate / 1_000_000).toFixed(2),
-            difficulty: data.difficulty
-        };
-    } catch (error) {
-        console.error("Error fetching network info:", error);
-        return null;
+    const now = Date.now();
+    if (!networkCache || now - lastNetworkFetch > CACHE_DURATION) {
+        try {
+            const response = await axios.get('https://explorer.arqma.com/api/networkinfo');
+            const data = response.data.data;
+            networkCache = {
+                height: data.height,
+                hashrate: (data.hash_rate / 1_000_000).toFixed(2),
+                difficulty: data.difficulty
+            };
+            lastNetworkFetch = now;
+        } catch (error) {
+            console.error("Error fetching network info:", error);
+            return null;
+        }
     }
+    return networkCache;
 };
 
-// Fetch Emission Data
 const fetchEmissionData = async () => {
     try {
         const response = await axios.get('https://explorer.arqma.com/api/emission');
@@ -89,7 +97,6 @@ const fetchEmissionData = async () => {
     }
 };
 
-// Fetch ARQ Price
 const fetchArqPrice = async () => {
     try {
         const response = await axios.get('https://tradeogre.com/api/v1/ticker/arq-btc');
@@ -102,7 +109,6 @@ const fetchArqPrice = async () => {
     }
 };
 
-// Fetch Pools Data
 const fetchPoolsData = async () => {
     try {
         const poolsSecurity = await axios.get('https://miningpoolstats.stream/arqma');
@@ -133,7 +139,6 @@ const fetchPoolsData = async () => {
     }
 };
 
-// Fetch Daemon Info
 const fetchDaemonInfo = async () => {
     try {
         const response = await daemonClient.getInfo();
@@ -155,32 +160,35 @@ const fetchDaemonInfo = async () => {
     }
 };
 
-// Telegram bot handlers
-telegramBot.onText(/\/network/, async (msg) => {
+// Handler Functions
+const handleNetworkCommand = async () => {
     const networkData = await fetchNetworkInfo();
     const emissionData = await fetchEmissionData();
     const arqPrice = await fetchArqPrice();
 
     if (networkData && emissionData && arqPrice) {
-        const message = `
-🔗 *Arqma Network Stats*
+        return `
+🔗 **Arqma Network Stats**
 
-📊 *Network Height*: ${networkData.height}
-💻 *Network Hashrate*: ${networkData.hashrate} MH/s
-⚙️ *Network Difficulty*: ${networkData.difficulty}
-🪙 *Total Emission (Coinbase)*: ${emissionData.emission} ARQ
-💰 *TO Price*: ${arqPrice.priceBtc} BTC (${arqPrice.priceSat} sat)
+📊 **Network Height**: ${networkData.height}
+💻 **Network Hashrate**: ${networkData.hashrate} MH/s
+⚙️ **Network Difficulty**: ${networkData.difficulty}
+🪙 **Total Emission (Coinbase)**: ${emissionData.emission} ARQ
+💰 **TO Price**: ${arqPrice.priceBtc} BTC (${arqPrice.priceSat} sat)
         `;
-        telegramBot.sendMessage(msg.chat.id, message, { parse_mode: 'Markdown' });
-    } else {
-        telegramBot.sendMessage(msg.chat.id, "Failed to fetch network data.");
     }
+    return "Failed to fetch network data.";
+};
+
+// Telegram bot handlers
+telegramBot.onText(/\/network/, async (msg) => {
+    const message = await handleNetworkCommand();
+    telegramBot.sendMessage(msg.chat.id, message, { parse_mode: 'Markdown' });
 });
 
 telegramBot.onText(/\/daemon_info/, async (msg) => {
     const daemonInfo = await fetchDaemonInfo();
-    if (daemonInfo) {
-        const message = `
+    const message = daemonInfo ? `
 🛠️ *Daemon Info*
 
 💻 *Network Hashrate*: ${daemonInfo.hashrate} MH/s
@@ -188,11 +196,8 @@ telegramBot.onText(/\/daemon_info/, async (msg) => {
 🔗 *Top Block Hash*: [${daemonInfo.topBlockHash}](https://explorer.arqma.com/search?value=${daemonInfo.topBlockHash})
 🔄 *Version*: ${daemonInfo.version}
 💾 *Database Size*: ${daemonInfo.dbSizeGB} GB
-        `;
-        telegramBot.sendMessage(msg.chat.id, message, { parse_mode: 'Markdown' });
-    } else {
-        telegramBot.sendMessage(msg.chat.id, "Failed to fetch daemon information.");
-    }
+        ` : "Failed to fetch daemon information.";
+    telegramBot.sendMessage(msg.chat.id, message, { parse_mode: 'Markdown' });
 });
 
 telegramBot.onText(/\/pools/, async (msg) => {
@@ -210,33 +215,15 @@ telegramBot.onText(/\/helpme/, (msg) => {
 
 // Discord bot event handlers
 discordBot.on('messageCreate', async (message) => {
-    if (message.author.bot) return; // Ignore bot messages
+    if (message.author.bot) return;
 
     const content = message.content.toLowerCase();
-
     if (content === '!network') {
-        const networkData = await fetchNetworkInfo();
-        const emissionData = await fetchEmissionData();
-        const arqPrice = await fetchArqPrice();
-
-        if (networkData && emissionData && arqPrice) {
-            const responseMessage = `
-🔗 **Arqma Network Stats**
-
-📊 **Network Height**: ${networkData.height}
-💻 **Network Hashrate**: ${networkData.hashrate} MH/s
-⚙️ **Network Difficulty**: ${networkData.difficulty}
-🪙 **Total Emission (Coinbase)**: ${emissionData.emission} ARQ
-💰 **TO Price**: ${arqPrice.priceBtc} BTC (${arqPrice.priceSat} sat)
-            `;
-            message.channel.send(responseMessage);
-        } else {
-            message.channel.send("Failed to fetch network data.");
-        }
+        const responseMessage = await handleNetworkCommand();
+        message.channel.send(responseMessage);
     } else if (content === '!daemon_info') {
         const daemonInfo = await fetchDaemonInfo();
-        if (daemonInfo) {
-            const responseMessage = `
+        const responseMessage = daemonInfo ? `
 🛠️ **Daemon Info**
 
 💻 **Network Hashrate**: ${daemonInfo.hashrate} MH/s
@@ -244,11 +231,8 @@ discordBot.on('messageCreate', async (message) => {
 🔗 **Top Block Hash**: [${daemonInfo.topBlockHash}](https://explorer.arqma.com/search?value=${daemonInfo.topBlockHash})
 🔄 **Version**: ${daemonInfo.version}
 💾 **Database Size**: ${daemonInfo.dbSizeGB} GB
-            `;
-            message.channel.send(responseMessage);
-        } else {
-            message.channel.send("Failed to fetch daemon information.");
-        }
+        ` : "Failed to fetch daemon information.";
+        message.channel.send(responseMessage);
     } else if (content === '!pools') {
         const poolData = await fetchPoolsData();
         message.channel.send(poolData ? `🔗 **Arqma Pools**\n\n${poolData}` : "Failed to fetch pool data.");
