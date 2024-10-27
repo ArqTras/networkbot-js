@@ -61,7 +61,7 @@ This is a dual-purpose bot that provides network statistics, mining pool informa
 
 To start both the Telegram and Discord bots:
 ```bash
-node bot.js
+node index.js
 ```
 
 ### Usage
@@ -73,7 +73,7 @@ node bot.js
 
 ```plaintext
 .
-├── bot.js                  # Main bot logic for handling commands and API requests
+├── index.js                # Main bot logic for handling commands and API requests
 ├── .env                    # Environment file for tokens
 ├── package.json            # Project dependencies and scripts
 └── README.md               # Project documentation
