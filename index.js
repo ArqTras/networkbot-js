@@ -1,5 +1,4 @@
 require('dotenv').config();
-const fs = require('fs');
 const axios = require('axios');
 const { Client, GatewayIntentBits, Partials } = require('discord.js');
 const TelegramBot = require('node-telegram-bot-api');
@@ -60,32 +59,48 @@ const discordCommands = `
 ❓ !helpme - Show this help message
 `;
 
-// Caching setup
-let networkCache = null;
-let lastNetworkFetch = 0;
-const CACHE_DURATION = 60000; // Cache for 1 minute
-
-// Data fetching functions
-const fetchNetworkInfo = async () => {
-    const now = Date.now();
-    if (!networkCache || now - lastNetworkFetch > CACHE_DURATION) {
-        try {
-            const response = await axios.get('https://explorer.arqma.com/api/networkinfo');
-            const data = response.data.data;
-            networkCache = {
-                height: data.height,
-                hashrate: (data.hash_rate / 1_000_000).toFixed(2),
-                difficulty: data.difficulty
-            };
-            lastNetworkFetch = now;
-        } catch (error) {
-            console.error("Error fetching network info:", error);
-            return null;
-        }
+// Fetch BTC-to-USD price
+const fetchBtcToUsd = async () => {
+    try {
+        const response = await axios.get('https://api.coindesk.com/v1/bpi/currentprice/BTC.json');
+        return parseFloat(response.data.bpi.USD.rate.replace(',', ''));
+    } catch (error) {
+        console.error("Error fetching BTC-to-USD rate:", error);
+        return null;
     }
-    return networkCache;
 };
 
+// Fetch ARQ-to-BTC price and volume
+const fetchArqPrice = async () => {
+    try {
+        const response = await axios.get('https://tradeogre.com/api/v1/ticker/arq-btc');
+        const priceBtc = parseFloat(response.data.price).toFixed(8);
+        const priceSat = Math.round(priceBtc * 100_000_000);
+        const volume = parseFloat(response.data.volume).toFixed(2);
+        return { priceBtc, priceSat, volume };
+    } catch (error) {
+        console.error("Error fetching ARQ price:", error);
+        return null;
+    }
+};
+
+// Fetch network information
+const fetchNetworkInfo = async () => {
+    try {
+        const response = await axios.get('https://explorer.arqma.com/api/networkinfo');
+        const data = response.data.data;
+        return {
+            height: data.height,
+            hashrate: (data.hash_rate / 1_000_000).toFixed(2),
+            difficulty: data.difficulty
+        };
+    } catch (error) {
+        console.error("Error fetching network info:", error);
+        return null;
+    }
+};
+
+// Fetch emission data
 const fetchEmissionData = async () => {
     try {
         const response = await axios.get('https://explorer.arqma.com/api/emission');
@@ -97,26 +112,15 @@ const fetchEmissionData = async () => {
     }
 };
 
-const fetchArqPrice = async () => {
-    try {
-        const response = await axios.get('https://tradeogre.com/api/v1/ticker/arq-btc');
-        const priceBtc = parseFloat(response.data.price).toFixed(8);
-        const priceSat = Math.round(priceBtc * 100_000_000);
-        return { priceBtc, priceSat };
-    } catch (error) {
-        console.error("Error fetching ARQ price:", error);
-        return null;
-    }
-};
-
+// Fetch pools data
 const fetchPoolsData = async () => {
     try {
-        const poolsSecurity = await axios.get('https://miningpoolstats.stream/arqma');
-        const tMatch = poolsSecurity.data.match(/var last_time = "([^"]+)"/);
+        const response = await axios.get('https://miningpoolstats.stream/arqma');
+        const tMatch = response.data.match(/var last_time = "([^"]+)"/);
 
         if (!tMatch) {
             console.error("Failed to extract 't' parameter.");
-            return null;
+            return "Failed to fetch pool data.";
         }
 
         const t = tMatch[1];
@@ -135,10 +139,11 @@ const fetchPoolsData = async () => {
         }).join('\n');
     } catch (error) {
         console.error("Error fetching pool data:", error);
-        return null;
+        return "Failed to fetch pool data.";
     }
 };
 
+// Fetch daemon info
 const fetchDaemonInfo = async () => {
     try {
         const response = await daemonClient.getInfo();
@@ -147,26 +152,31 @@ const fetchDaemonInfo = async () => {
         const hashrate = (difficulty / target / 1_000_000).toFixed(2);
         const dbSizeGB = (database_size / (1024 ** 3)).toFixed(2);
 
-        return {
-            hashrate,
-            height,
-            topBlockHash: top_block_hash,
-            version,
-            dbSizeGB
-        };
+        return `
+🛠️ **Daemon Info**
+
+💻 **Network Hashrate**: ${hashrate} MH/s
+📊 **Height**: ${height}
+🔗 **Top Block Hash**: [${top_block_hash}](https://explorer.arqma.com/search?value=${top_block_hash})
+🔄 **Version**: ${version}
+💾 **Database Size**: ${dbSizeGB} GB
+        `;
     } catch (error) {
         console.error("Error fetching daemon info:", error);
-        return null;
+        return "Failed to fetch daemon information.";
     }
 };
 
-// Handler Functions
+// Handle network command
 const handleNetworkCommand = async () => {
     const networkData = await fetchNetworkInfo();
     const emissionData = await fetchEmissionData();
     const arqPrice = await fetchArqPrice();
+    const btcToUsd = await fetchBtcToUsd();
 
-    if (networkData && emissionData && arqPrice) {
+    if (networkData && emissionData && arqPrice && btcToUsd) {
+        const volumeUsd = (arqPrice.volume * arqPrice.priceBtc * btcToUsd).toFixed(2);
+
         return `
 🔗 **Arqma Network Stats**
 
@@ -175,75 +185,59 @@ const handleNetworkCommand = async () => {
 ⚙️ **Network Difficulty**: ${networkData.difficulty}
 🪙 **Total Emission (Coinbase)**: ${emissionData.emission} ARQ
 💰 **TO Price**: ${arqPrice.priceBtc} BTC (${arqPrice.priceSat} sat)
+💰 **TO 24h ARQ Volume**: $${volumeUsd} USD
+💰 **BTC Price**: $${btcToUsd.toFixed(2)} USD
         `;
     }
+
     return "Failed to fetch network data.";
 };
 
-// Telegram bot handlers
-telegramBot.onText(/\/network/, async (msg) => {
-    const message = await handleNetworkCommand();
-    telegramBot.sendMessage(msg.chat.id, message, { parse_mode: 'Markdown' });
-});
-
-telegramBot.onText(/\/daemon_info/, async (msg) => {
-    const daemonInfo = await fetchDaemonInfo();
-    const message = daemonInfo ? `
-🛠️ *Daemon Info*
-
-💻 *Network Hashrate*: ${daemonInfo.hashrate} MH/s
-📊 *Height*: ${daemonInfo.height}
-🔗 *Top Block Hash*: [${daemonInfo.topBlockHash}](https://explorer.arqma.com/search?value=${daemonInfo.topBlockHash})
-🔄 *Version*: ${daemonInfo.version}
-💾 *Database Size*: ${daemonInfo.dbSizeGB} GB
-        ` : "Failed to fetch daemon information.";
-    telegramBot.sendMessage(msg.chat.id, message, { parse_mode: 'Markdown' });
-});
-
-telegramBot.onText(/\/pools/, async (msg) => {
-    const poolData = await fetchPoolsData();
-    telegramBot.sendMessage(msg.chat.id, poolData ? `🔗 *Arqma Pools*\n\n${poolData}` : "Failed to fetch pool data.", { parse_mode: 'Markdown' });
+// Telegram handlers
+telegramBot.onText(/\/helpme/, (msg) => {
+    telegramBot.sendMessage(msg.chat.id, telegramCommands, { parse_mode: 'MarkdownV2' });
 });
 
 telegramBot.onText(/\/links/, (msg) => {
     telegramBot.sendMessage(msg.chat.id, importantLinks, { parse_mode: 'Markdown' });
 });
 
-telegramBot.onText(/\/helpme/, (msg) => {
-    telegramBot.sendMessage(msg.chat.id, telegramCommands, { parse_mode: 'MarkdownV2' });
+telegramBot.onText(/\/pools/, async (msg) => {
+    const pools = await fetchPoolsData();
+    telegramBot.sendMessage(msg.chat.id, pools || "Failed to fetch pool data.", { parse_mode: 'Markdown' });
 });
 
-// Discord bot event handlers
+telegramBot.onText(/\/daemon_info/, async (msg) => {
+    const daemonInfo = await fetchDaemonInfo();
+    telegramBot.sendMessage(msg.chat.id, daemonInfo, { parse_mode: 'Markdown' });
+});
+
+telegramBot.onText(/\/network/, async (msg) => {
+    const message = await handleNetworkCommand();
+    telegramBot.sendMessage(msg.chat.id, message, { parse_mode: 'Markdown' });
+});
+
+// Discord handlers
 discordBot.on('messageCreate', async (message) => {
     if (message.author.bot) return;
 
     const content = message.content.toLowerCase();
-    if (content === '!network') {
-        const responseMessage = await handleNetworkCommand();
-        message.channel.send(responseMessage);
-    } else if (content === '!daemon_info') {
-        const daemonInfo = await fetchDaemonInfo();
-        const responseMessage = daemonInfo ? `
-🛠️ **Daemon Info**
-
-💻 **Network Hashrate**: ${daemonInfo.hashrate} MH/s
-📊 **Height**: ${daemonInfo.height}
-🔗 **Top Block Hash**: [${daemonInfo.topBlockHash}](https://explorer.arqma.com/search?value=${daemonInfo.topBlockHash})
-🔄 **Version**: ${daemonInfo.version}
-💾 **Database Size**: ${daemonInfo.dbSizeGB} GB
-        ` : "Failed to fetch daemon information.";
-        message.channel.send(responseMessage);
-    } else if (content === '!pools') {
-        const poolData = await fetchPoolsData();
-        message.channel.send(poolData ? `🔗 **Arqma Pools**\n\n${poolData}` : "Failed to fetch pool data.");
+    if (content === '!helpme') {
+        message.channel.send(discordCommands);
     } else if (content === '!links') {
         message.channel.send(importantLinks);
-    } else if (content === '!helpme') {
-        message.channel.send(discordCommands);
+    } else if (content === '!pools') {
+        const pools = await fetchPoolsData();
+        message.channel.send(pools || "Failed to fetch pool data.");
+    } else if (content === '!daemon_info') {
+        const daemonInfo = await fetchDaemonInfo();
+        message.channel.send(daemonInfo);
+    } else if (content === '!network') {
+        const responseMessage = await handleNetworkCommand();
+        message.channel.send(responseMessage);
     }
 });
 
 // Start the bots
 discordBot.login(DISCORD_TOKEN).then(() => console.log("Discord bot is ready!"));
 console.log("Telegram bot is ready!");
-
