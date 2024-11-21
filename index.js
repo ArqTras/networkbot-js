@@ -76,8 +76,8 @@ const fetchArqPrice = async () => {
         const response = await axios.get('https://tradeogre.com/api/v1/ticker/arq-btc');
         const priceBtc = parseFloat(response.data.price).toFixed(8);
         const priceSat = Math.round(priceBtc * 100_000_000);
-        const volume = parseFloat(response.data.volume).toFixed(2);
-        return { priceBtc, priceSat, volume };
+        const volumeBtc = parseFloat(response.data.volume); // Volume is in BTC
+        return { priceBtc, priceSat, volumeBtc };
     } catch (error) {
         console.error("Error fetching ARQ price:", error);
         return null;
@@ -112,7 +112,7 @@ const fetchEmissionData = async () => {
     }
 };
 
-// Fetch pools data
+// Fetch pools data (using your provided code)
 const fetchPoolsData = async () => {
     try {
         const response = await axios.get('https://miningpoolstats.stream/arqma');
@@ -135,7 +135,9 @@ const fetchPoolsData = async () => {
 
             return hashrate >= 1_000_000
                 ? `⛏️ **${name}**: ${(hashrate / 1_000_000).toFixed(2)} MH/s`
-                : `⛏️ **${name}**: ${(hashrate / 1_000).toFixed(2)} KH/s`;
+                : hashrate >= 1_000
+                ? `⛏️ **${name}**: ${(hashrate / 1_000).toFixed(2)} KH/s`
+                : `⛏️ **${name}**: ${hashrate} H/s`;
         }).join('\n');
     } catch (error) {
         console.error("Error fetching pool data:", error);
@@ -175,7 +177,8 @@ const handleNetworkCommand = async () => {
     const btcToUsd = await fetchBtcToUsd();
 
     if (networkData && emissionData && arqPrice && btcToUsd) {
-        const volumeUsd = (arqPrice.volume * arqPrice.priceBtc * btcToUsd).toFixed(2);
+        const volumeUsd = (arqPrice.volumeBtc * btcToUsd).toFixed(2);
+        const volumeArq = (arqPrice.volumeBtc / arqPrice.priceBtc).toFixed(2);
 
         return `
 🔗 **Arqma Network Stats**
@@ -185,7 +188,7 @@ const handleNetworkCommand = async () => {
 ⚙️ **Network Difficulty**: ${networkData.difficulty}
 🪙 **Total Emission (Coinbase)**: ${emissionData.emission} ARQ
 💰 **TO Price**: ${arqPrice.priceBtc} BTC (${arqPrice.priceSat} sat)
-💰 **TO 24h ARQ Volume**: $${volumeUsd} USD
+💰 **TO 24h Volume**: ${volumeArq} ARQ ($${volumeUsd} USD)
 💰 **BTC Price**: $${btcToUsd.toFixed(2)} USD
         `;
     }
