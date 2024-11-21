@@ -1,11 +1,30 @@
 require('dotenv').config();
 const axios = require('axios');
+const fs = require('fs');
+const path = require('path');
 const { Client, GatewayIntentBits, Partials } = require('discord.js');
 const TelegramBot = require('node-telegram-bot-api');
 const { RPCDaemon } = require('@arqma/arqma-rpc');
+const OpenAI = require('openai');
 
 const TELEGRAM_TOKEN = process.env.TELEGRAM_TOKEN;
 const DISCORD_TOKEN = process.env.DISCORD_TOKEN;
+const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
+
+// Debugging: Log the presence of environment variables (Do not log actual keys)
+console.log('TELEGRAM_TOKEN loaded:', !!TELEGRAM_TOKEN);
+console.log('DISCORD_TOKEN loaded:', !!DISCORD_TOKEN);
+console.log('OPENAI_API_KEY loaded:', !!OPENAI_API_KEY);
+
+if (!TELEGRAM_TOKEN || !DISCORD_TOKEN || !OPENAI_API_KEY) {
+    console.error('One or more environment variables are missing. Please check your .env file.');
+    process.exit(1);
+}
+
+// Initialize OpenAI API
+const openai = new OpenAI({
+    apiKey: OPENAI_API_KEY,
+});
 
 // Initialize Telegram Bot
 const telegramBot = new TelegramBot(TELEGRAM_TOKEN, { polling: true });
@@ -16,9 +35,9 @@ const discordBot = new Client({
         GatewayIntentBits.Guilds,
         GatewayIntentBits.GuildMessages,
         GatewayIntentBits.DirectMessages,
-        GatewayIntentBits.MessageContent
+        GatewayIntentBits.MessageContent,
     ],
-    partials: [Partials.Channel]
+    partials: [Partials.Channel],
 });
 
 // Initialize RPC Daemon client
@@ -42,20 +61,22 @@ const importantLinks = `
 const telegramCommands = `
 📜 *Available Commands*
 
-📊 /network \\- Get Arqma network statistics
-🔗 /links \\- Display important Arqma\\-related links
-⛏️ /pools \\- Display Arqma mining pools with hashrates
-🛠️ /daemon\\_info \\- Get detailed Arqma daemon information
+📊 /network \\- Get ArQmA network statistics
+🔗 /links \\- Display important ArQmA\\-related links
+⛏️ /pools \\- Display ArQmA mining pools with hashrates
+🛠️ /daemon\\_info \\- Get detailed ArQmA daemon information
+🖼️ /generate\\_image \\- Generate an AI image with ARQMA text and logo
 ❓ /helpme \\- Show this help message
 `;
 
 const discordCommands = `
 📜 **Available Commands**
 
-📊 !network - Get Arqma network statistics
-🔗 !links - Display important Arqma-related links
-⛏️ !pools - Display Arqma mining pools with hashrates
-🛠️ !daemon_info - Get detailed Arqma daemon information
+📊 !network - Get ArQmA network statistics
+🔗 !links - Display important ArQmA-related links
+⛏️ !pools - Display ArQmA mining pools with hashrates
+🛠️ !daemon_info - Get detailed ArQmA daemon information
+🖼️ !generate_image - Generate an AI image with ARQMA text and logo
 ❓ !helpme - Show this help message
 `;
 
@@ -73,7 +94,7 @@ const fetchBtcToUsd = async () => {
 // Fetch ARQ-to-BTC price and volume
 const fetchArqPrice = async () => {
     try {
-        const response = await axios.get('https://tradeogre.com/api/v1/ticker/arq-btc');
+        const response = await axios.get('https://tradeogre.com/api/v1/ticker/BTC-ARQ');
         const priceBtc = parseFloat(response.data.price).toFixed(8);
         const priceSat = Math.round(priceBtc * 100_000_000);
         const volumeBtc = parseFloat(response.data.volume); // Volume is in BTC
@@ -92,7 +113,7 @@ const fetchNetworkInfo = async () => {
         return {
             height: data.height,
             hashrate: (data.hash_rate / 1_000_000).toFixed(2),
-            difficulty: data.difficulty
+            difficulty: data.difficulty,
         };
     } catch (error) {
         console.error("Error fetching network info:", error);
@@ -105,14 +126,14 @@ const fetchEmissionData = async () => {
     try {
         const response = await axios.get('https://explorer.arqma.com/api/emission');
         const emission = Math.floor(response.data.data.coinbase / 100_000);
-        return { emission: emission.toString().slice(0, 8) };
+        return { emission: emission.toString() };
     } catch (error) {
         console.error("Error fetching emission data:", error);
         return null;
     }
 };
 
-// Fetch pools data (using your provided code)
+// Fetch pools data
 const fetchPoolsData = async () => {
     try {
         const response = await axios.get('https://miningpoolstats.stream/arqma');
@@ -129,7 +150,7 @@ const fetchPoolsData = async () => {
         const poolsInfo = poolsQuery.data.data || [];
 
         const sortedPools = poolsInfo.sort((a, b) => b.hashrate - a.hashrate);
-        return sortedPools.map(pool => {
+        return sortedPools.map((pool) => {
             const name = pool.pool_id || "Unknown Pool";
             const hashrate = pool.hashrate || 0;
 
@@ -181,7 +202,7 @@ const handleNetworkCommand = async () => {
         const volumeArq = (arqPrice.volumeBtc / arqPrice.priceBtc).toFixed(2);
 
         return `
-🔗 **Arqma Network Stats**
+🔗 **ArQmA Network Stats**
 
 📊 **Network Height**: ${networkData.height}
 💻 **Network Hashrate**: ${networkData.hashrate} MH/s
@@ -194,6 +215,37 @@ const handleNetworkCommand = async () => {
     }
 
     return "Failed to fetch network data.";
+};
+
+// Generate AI Image
+const generateAIImage = async () => {
+    try {
+        const prompt = "An artistic image featuring the text 'ARQMA' and a hexagon transparent logo in modern digital art style.";
+        const response = await openai.images.generate({
+            prompt: prompt,
+            n: 1,
+            size: "512x512",
+        });
+
+        const imageUrl = response.data[0].url;
+
+        // Download the image to a temporary file
+        const imageResponse = await axios.get(imageUrl, { responseType: 'arraybuffer' });
+        const tempImagePath = path.join(__dirname, 'temp_image.png');
+        fs.writeFileSync(tempImagePath, imageResponse.data);
+
+        return tempImagePath;
+    } catch (error) {
+        // Check for billing limit error
+        const errorMessage = error.response ? error.response.data.error.message : error.message;
+        console.error("Error generating AI image:", errorMessage);
+
+        if (errorMessage.includes("Billing hard limit has been reached")) {
+            return "billing_limit_reached";
+        }
+
+        return null;
+    }
 };
 
 // Telegram handlers
@@ -220,6 +272,23 @@ telegramBot.onText(/\/network/, async (msg) => {
     telegramBot.sendMessage(msg.chat.id, message, { parse_mode: 'Markdown' });
 });
 
+telegramBot.onText(/\/generate_image/, async (msg) => {
+    const chatId = msg.chat.id;
+    telegramBot.sendMessage(chatId, "Generating image, please wait...");
+    const result = await generateAIImage();
+
+    if (result === "billing_limit_reached") {
+        telegramBot.sendMessage(chatId, "⚠️ Billing limit reached. Please wait a bit before generating a new image.");
+    } else if (result) {
+        telegramBot.sendPhoto(chatId, result).then(() => {
+            // Delete the temporary image file
+            fs.unlinkSync(result);
+        });
+    } else {
+        telegramBot.sendMessage(chatId, "Failed to generate image. Please check the console for details.");
+    }
+});
+
 // Discord handlers
 discordBot.on('messageCreate', async (message) => {
     if (message.author.bot) return;
@@ -238,9 +307,24 @@ discordBot.on('messageCreate', async (message) => {
     } else if (content === '!network') {
         const responseMessage = await handleNetworkCommand();
         message.channel.send(responseMessage);
+    } else if (content === '!generate_image') {
+        message.channel.send("Generating image, please wait...");
+        const result = await generateAIImage();
+
+        if (result === "billing_limit_reached") {
+            message.channel.send("⚠️ Billing limit reached. Please wait a bit before generating a new image.");
+        } else if (result) {
+            message.channel.send({ files: [result] }).then(() => {
+                // Delete the temporary image file
+                fs.unlinkSync(result);
+            });
+        } else {
+            message.channel.send("Failed to generate image. Please check the console for details.");
+        }
     }
 });
 
 // Start the bots
 discordBot.login(DISCORD_TOKEN).then(() => console.log("Discord bot is ready!"));
+telegramBot.on('polling_error', (error) => console.error("Telegram polling error:", error));
 console.log("Telegram bot is ready!");

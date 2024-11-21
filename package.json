@@ -1,29 +1,12 @@
 {
-  "name": "networkbot-js",
-  "version": "1.0.0",
-  "description": "A cross-platform bot for Telegram and Discord to provide Arqma network statistics, daemon info, and helpful links.",
-  "main": "index.js",
-  "scripts": {
-    "start": "node index.js"
-  },
-  "keywords": [
-    "arqma",
-    "telegram-bot",
-    "discord-bot",
-    "network",
-    "statistics"
-  ],
-  "author": "ArqTras",
-  "license": "MIT",
   "dependencies": {
-    "axios": "^0.21.1",
-    "discord.js": "^14.0.0",
-    "dotenv": "^10.0.0",
-    "node-telegram-bot-api": "^0.51.0",
-    "@arqma/arqma-rpc": "^1.0.0"
-  },
-  "engines": {
-    "node": ">=14.0.0"
+    "@arqma/arqma-rpc": "^0.2.3",
+    "axios": "^1.7.7",
+    "discord.js": "^14.16.3",
+    "dotenv": "^16.4.5",
+    "fs": "^0.0.1-security",
+    "node-telegram-bot-api": "^0.66.0",
+    "openai": "^4.73.0",
+    "path": "^0.12.7"
   }
 }
-
