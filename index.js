@@ -1,5 +1,6 @@
 require('dotenv').config();
 const axios = require('axios');
+const cheerio = require('cheerio');
 const { Client, GatewayIntentBits, Partials } = require('discord.js');
 const TelegramBot = require('node-telegram-bot-api');
 const { RPCDaemon } = require('@arqma/arqma-rpc');
@@ -62,10 +63,10 @@ const discordCommands = `
 // Fetch BTC-to-USD price
 const fetchBtcToUsd = async () => {
     try {
-        const response = await axios.get('https://api.coindesk.com/v1/bpi/currentprice/BTC.json');
-        return parseFloat(response.data.bpi.USD.rate.replace(',', ''));
+        const response = await axios.get('https://api.binance.com/api/v3/ticker/price?symbol=BTCUSDT');
+        return parseFloat(response.data.price);
     } catch (error) {
-        console.error("Error fetching BTC-to-USD rate:", error);
+        console.error("Error fetching BTC-to-USD rate from Binance:", error);
         return null;
     }
 };
@@ -112,7 +113,28 @@ const fetchEmissionData = async () => {
     }
 };
 
-// Fetch pools data (using your provided code)
+// Fetch active service nodes and service nodes awaiting contributions
+const fetchServiceNodeData = async () => {
+    try {
+        const response = await axios.get('https://explorer.arqma.com/service_nodes');
+        const $ = cheerio.load(response.data);
+
+        // Active Service Nodes
+        const activeNodesText = $('body > div:nth-child(3) > h2:nth-child(4)').text().trim();
+        const activeNodes = parseInt(activeNodesText.replace(/\D/g, '')); // Extract number
+
+        // Service Nodes Awaiting Contributions
+        const awaitingNodesText = $('#service-nodes-awaiting > span:nth-child(1)').text().trim(); // Extract number from span
+        const awaitingNodes = parseInt(awaitingNodesText.replace(/\D/g, '')); // Extract number
+
+        return { activeNodes, awaitingNodes };
+    } catch (error) {
+        console.error("Error fetching service node data:", error);
+        return { activeNodes: 0, awaitingNodes: 0 };
+    }
+};
+
+// Fetch pools data
 const fetchPoolsData = async () => {
     try {
         const response = await axios.get('https://miningpoolstats.stream/arqma');
@@ -175,6 +197,7 @@ const handleNetworkCommand = async () => {
     const emissionData = await fetchEmissionData();
     const arqPrice = await fetchArqPrice();
     const btcToUsd = await fetchBtcToUsd();
+    const { activeNodes, awaitingNodes } = await fetchServiceNodeData(); // Fetch active and awaiting nodes
 
     if (networkData && emissionData && arqPrice && btcToUsd) {
         const volumeUsd = (arqPrice.volumeBtc * btcToUsd).toFixed(2);
@@ -190,6 +213,8 @@ const handleNetworkCommand = async () => {
 💰 **TO Price**: ${arqPrice.priceBtc} BTC (${arqPrice.priceSat} sat)
 💰 **TO 24h Volume**: ${volumeArq} ARQ ($${volumeUsd} USD)
 💰 **BTC Price**: $${btcToUsd.toFixed(2)} USD
+🌐 **Active Service Nodes**: ${activeNodes} nodes
+🌐 **Service Nodes Awaiting Contributions**: ${awaitingNodes} nodes
         `;
     }
 
