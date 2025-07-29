@@ -18,13 +18,13 @@ module.exports = async () => {
             const hashrate = pool.hashrate || 0;
             totalHashrate += hashrate;
             return hashrate >= 1_000_000
-                ? `⛏️ **${name}**: ${(hashrate / 1_000_000).toFixed(2)} MH/s`
+                ? `⛏️ ${name}: ${(hashrate / 1_000_000).toFixed(2)} MH/s`
                 : hashrate >= 1_000
-                ? `⛏️ **${name}**: ${(hashrate / 1_000).toFixed(2)} KH/s`
-                : `⛏️ **${name}**: ${hashrate} H/s`;
+                ? `⛏️ ${name}: ${(hashrate / 1_000).toFixed(2)} KH/s`
+                : `⛏️ ${name}: ${hashrate} H/s`;
         }).join('\n');
 
-        return `${poolLines}\n\n🌐 **Total Pool Hashrate**: ${(totalHashrate / 1_000_000).toFixed(2)} MH/s`;
+        return `🌐 Total Pool Hashrate: ${(totalHashrate / 1_000_000).toFixed(2)} MH/s\n\n${poolLines}`;
     } catch (error) {
         console.error("Error fetching pool data:", error);
         return "Failed to fetch pool data.";
