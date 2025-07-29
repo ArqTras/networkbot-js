@@ -1,135 +1,93 @@
-
-````markdown
 # ArQmA Network Bot
 
-A multi-platform bot for the ArQmA cryptocurrency network, running on both **Telegram** and **Discord**.  
-It provides real-time network statistics, pool hashrates, monitored node statuses, and automated node alerts to the administrator.
+A multi-platform bot for **ArQmA network monitoring** and notifications.  
+Supports both **Telegram** and **Discord** for commands and node alerts.
 
 ---
 
 ## Features
 
-- ArQmA network stats (height, difficulty, hashrate, emission, price, and more)
-- Live mining pool list and total pool hashrate
-- Status checks of multiple public nodes
-- Automatic node health monitoring and Telegram alerts for admins
-- Clean, modular codebase (commands/fetch/alerts/config)
-- Easy deployment to your own servers
+- ⚡ Real-time **node status monitoring** (offline, out-of-sync, etc.)
+- 📊 Get **network, pool, and daemon** stats via chat commands
+- 🔔 Sends alerts to **Telegram user** (admin) and **Discord channel** (configurable)
+- Same codebase runs both bots and shares logic
 
 ---
 
-## Installation
+## Quickstart
 
-1. **Clone this repository**
-   ```bash
-   git clone https://github.com/YOUR_USER/arqma-bot.git
-   cd arqma-bot
-````
+### 1. Generate files
 
-2. **Install dependencies**
+Save the generator script as `generate-structure.js` and run:
 
-   ```bash
-   npm install
-   ```
+```bash
+node generate-structure.js
+```
 
-3. **Set up your environment variables**
-   Create a `.env` file in the root directory with:
+### 2. Install dependencies
 
-   ```
-   TELEGRAM_TOKEN=your_telegram_bot_token
-   DISCORD_TOKEN=your_discord_bot_token
-   ALERT_USER_ID=your_telegram_user_id
-   ```
+```bash
+npm install
+```
 
-   * **TELEGRAM\_TOKEN** – Get it from [BotFather](https://t.me/BotFather)
-   * **DISCORD\_TOKEN** – Get it from the Discord developer portal
-   * **ALERT\_USER\_ID** – Your numeric Telegram user id (for receiving admin node alerts)
+### 3. Configure .env
 
-4. **Start the bot**
-
-   ```bash
-   npm start
-   ```
-
-   or simply:
-
-   ```bash
-   node bot.js
-   ```
-
----
-
-## Project Structure
+Edit your `.env` file with **your real tokens/IDs**:
 
 ```
-/commands   # Each bot command as a separate file
-/fetch      # Functions for fetching external data
-/alerts     # Node monitoring and alerting logic
-/config     # Configuration files (like nodeList.js)
-bot.js      # Main bot entrypoint
-.env        # Secrets and tokens (never commit to public repo!)
+TELEGRAM_TOKEN=...        # Get from BotFather
+DISCORD_TOKEN=...         # Get from Discord Developer Portal
+ALERT_USER_ID=...         # Your Telegram numeric user ID
+DISCORD_ALERT_CHANNEL_ID=... # Discord channel ID for alerts
+```
+
+### 4. Run the bot
+
+```bash
+npm start
 ```
 
 ---
 
-## Requirements
+## Bot Commands
 
-* Node.js 18.x or newer
-* Telegram bot token
-* Discord bot token
-* Proper permissions for both bots
+### Telegram
 
----
+- `/helpme` — show all commands
+- `/links` — important links
+- `/pools` — mining pool stats
+- `/daemon_info` — daemon info
+- `/network` — network stats
+- `/nodes` — node status
 
-## Commands
+### Discord
 
-**On Telegram:**
-
-* `/helpme` — List all commands
-* `/network` — Network stats
-* `/pools` — Mining pools and hashrates
-* `/links` — Useful links
-* `/daemon_info` — Daemon statistics
-* `/nodes` — Status of public nodes
-
-**On Discord:**
-
-* `!helpme` — List all commands
-* `!network` — Network stats
-* `!pools` — Mining pools and hashrates
-* `!links` — Useful links
-* `!daemon_info` — Daemon statistics
-* `!nodes` — Status of public nodes
+- `!helpme` — show all commands
+- `!links` — important links
+- `!pools` — mining pool stats
+- `!daemon_info` — daemon info
+- `!network` — network stats
+- `!nodes` — node status
 
 ---
 
-## Example Output
+## Alerts
 
-```
-🌐 Total Pool Hashrate: 0.95 MH/s
+- Alerts are sent to **Telegram** user (`ALERT_USER_ID`) and **Discord** channel (`DISCORD_ALERT_CHANNEL_ID`) if a node is offline, out-of-sync, or back online.
 
-⛏️ zergpool.com: 757.17 KH/s
-⛏️ supportcryptonight.com: 170.17 KH/s
-⛏️ fastpool.xyz: 26.46 KH/s
-⛏️ skypool.org: 0 H/s
-⛏️ walemo.cc: 0 H/s
-⛏️ moneroocean.stream: 0 H/s
-⛏️ gntl.uk: 0 H/s
-⛏️ aikapool.com: 0 H/s
-```
+---
+
+## Structure
+
+- `handlers/` — bot integrations (telegram/discord)
+- `commands/` — logic for each command
+- `fetch/` — data fetching from APIs
+- `alerts/` — alert logic
+- `config/` — node list config
+- `utils/` — helper functions
 
 ---
 
 ## License
 
 MIT
-
----
-
-## Credits
-
-* [ArQmA Project](https://arqma.com/)
-* [miningpoolstats.stream](https://miningpoolstats.stream/arqma)
-* [TradeOgre](https://tradeogre.com)
-
-
