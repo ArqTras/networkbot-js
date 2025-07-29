@@ -6,7 +6,7 @@ const daemon_info = require('../commands/daemon_info');
 const network = require('../commands/network');
 const nodes = require('../commands/nodes');
 
-module.exports = (TELEGRAM_TOKEN, ALERT_USER_ID, daemonClient, discordBot) => {
+module.exports = (TELEGRAM_TOKEN, ALERT_USER_ID, daemonClient) => {
   const telegramBot = new TelegramBot(TELEGRAM_TOKEN, { polling: true });
 
   telegramBot.onText(/\/helpme/, msg => telegramBot.sendMessage(msg.chat.id, helpme("telegram"), { parse_mode: 'MarkdownV2' }));
