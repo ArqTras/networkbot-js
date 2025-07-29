@@ -1,13 +1,18 @@
 {
+  "name": "arqma-bot",
+  "version": "1.0.0",
+  "description": "Discord & Telegram bot for Arqma network.",
+  "main": "bot.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node bot.js"
+  },
   "dependencies": {
     "@arqma/arqma-rpc": "^0.2.3",
     "axios": "^1.7.7",
     "cheerio": "^1.1.0",
     "discord.js": "^14.16.3",
     "dotenv": "^16.4.5",
-    "fs": "^0.0.1-security",
-    "node-telegram-bot-api": "^0.66.0",
-    "openai": "^4.73.0",
-    "path": "^0.12.7"
+    "node-telegram-bot-api": "^0.66.0"
   }
 }
