@@ -15,6 +15,5 @@ if (!TELEGRAM_TOKEN || !DISCORD_TOKEN || !ALERT_USER_ID || !process.env.DISCORD_
 const daemonClient = RPCDaemon.createDaemonClient({ url: 'http://127.0.0.1:19994' });
 daemonClient.sslRejectUnauthorized(false);
 
-// START TELEGRAM FIRST, then Discord
 let telegramBot = startTelegram(TELEGRAM_TOKEN, ALERT_USER_ID, daemonClient);
 let discordBot = startDiscord(DISCORD_TOKEN, daemonClient, telegramBot, ALERT_USER_ID);

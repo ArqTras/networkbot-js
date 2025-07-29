@@ -47,6 +47,12 @@ DISCORD_ALERT_CHANNEL_ID=... # Discord channel ID for alerts
 npm start
 ```
 
+### 5. Run the tests
+
+```bash
+npm test
+```
+
 ---
 
 ## Bot Commands
@@ -85,6 +91,7 @@ npm start
 - `alerts/` — alert logic
 - `config/` — node list config
 - `utils/` — helper functions
+- `__tests__/` — unit tests
 
 ---
 
