@@ -5,8 +5,10 @@ const pools = require('../commands/pools');
 const daemon_info = require('../commands/daemon_info');
 const network = require('../commands/network');
 const nodes = require('../commands/nodes');
+const nodeAlerter = require('../alerts/nodeAlerter');
+const nodeList = require('../config/nodeList');
 
-module.exports = (DISCORD_TOKEN, daemonClient) => {
+module.exports = (DISCORD_TOKEN, daemonClient, telegramBot, ALERT_USER_ID) => {
   const discordBot = new Client({
     intents: [
       GatewayIntentBits.Guilds,
@@ -15,6 +17,12 @@ module.exports = (DISCORD_TOKEN, daemonClient) => {
       GatewayIntentBits.MessageContent
     ],
     partials: [Partials.Channel]
+  });
+
+  discordBot.once('ready', () => {
+    let nodeAlertState = nodeList.map(() => ({ offline: false, behind: false }));
+    setInterval(() => nodeAlerter(nodeList, nodeAlertState, telegramBot, ALERT_USER_ID, discordBot), 60 * 1000);
+    console.log("Discord bot is ready!");
   });
 
   discordBot.on('messageCreate', async (message) => {
@@ -35,7 +43,6 @@ module.exports = (DISCORD_TOKEN, daemonClient) => {
     }
   });
 
-  discordBot.login(DISCORD_TOKEN)
-    .then(() => console.log("Discord bot is ready!"))
-    .catch(err => console.error("Discord login failed:", err));
+  discordBot.login(DISCORD_TOKEN).catch(err => console.error("Discord login failed:", err));
+  return discordBot;
 };
