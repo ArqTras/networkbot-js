@@ -2,6 +2,7 @@ const axios = require('axios');
 require('dotenv').config();
 const DISCORD_ALERT_CHANNEL_ID = process.env.DISCORD_ALERT_CHANNEL_ID;
 
+// Each item: { offline: false, behind: false, offlineCount: 0 }
 module.exports = async (nodeList, nodeAlertState, telegramBot, ALERT_USER_ID, discordBot) => {
   const pingResults = await Promise.all(nodeList.map(async (node) => {
     try {
@@ -17,23 +18,23 @@ module.exports = async (nodeList, nodeAlertState, telegramBot, ALERT_USER_ID, di
 
   for (let i = 0; i < pingResults.length; i++) {
     const r = pingResults[i];
-    const prevState = nodeAlertState[i];
+    let prevState = nodeAlertState[i];
+    if (typeof prevState.offlineCount !== "number") prevState.offlineCount = 0;
 
-    // Helper: alert to both platforms
+    // Alert to both
     async function sendAlert(alertText) {
-      if (telegramBot) {
-        await telegramBot.sendMessage(ALERT_USER_ID, alertText);
-      }
+      if (telegramBot) await telegramBot.sendMessage(ALERT_USER_ID, alertText);
       if (discordBot && discordBot.channels && discordBot.channels.cache && DISCORD_ALERT_CHANNEL_ID) {
         const channel = discordBot.channels.cache.get(DISCORD_ALERT_CHANNEL_ID);
         if (channel) channel.send(alertText);
       }
     }
 
-    // Offline
+    // OFFLINE ALERT: only if 2+ consecutive checks
     if (!r.online) {
-      if (!prevState.offline) {
-        await sendAlert(`🚨 [NODE ALERT]\n${r.node.name} is OFFLINE!`);
+      prevState.offlineCount++;
+      if (!prevState.offline && prevState.offlineCount >= 2) {
+        await sendAlert(`🚨 [NODE ALERT]\n${r.node.name} is OFFLINE for ${prevState.offlineCount} minutes!`);
         prevState.offline = true;
       }
       prevState.behind = false;
@@ -43,9 +44,11 @@ module.exports = async (nodeList, nodeAlertState, telegramBot, ALERT_USER_ID, di
         await sendAlert(`✅ [NODE ALERT]\n${r.node.name} is back ONLINE!`);
         prevState.offline = false;
       }
+      prevState.offlineCount = 0;
     }
-    // Behind
-    if (r.height && maxHeight && (maxHeight - r.height > 2)) {
+
+    // OUT OF SYNC ALERT: only if > 4 blocks behind
+    if (r.height && maxHeight && (maxHeight - r.height > 4)) {
       if (!prevState.behind) {
         await sendAlert(`🚨 [NODE ALERT]\n${r.node.name} is OUT OF SYNC by ${maxHeight - r.height} blocks (Current: ${r.height}, Highest: ${maxHeight})!`);
         prevState.behind = true;

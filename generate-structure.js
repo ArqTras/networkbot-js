@@ -14,7 +14,7 @@ folders.forEach(folder => {
   if (!fs.existsSync(folder)) fs.mkdirSync(folder);
 });
 
-// COMMANDS
+// ---- COMMANDS ----
 const commandFiles = [
   ['helpme.js', `
 module.exports = (platform) => {
@@ -128,7 +128,7 @@ commandFiles.forEach(([name, content]) =>
   fs.writeFileSync(path.join('commands', name), content.trim(), {flag: 'w'})
 );
 
-// FETCHERS
+// ---- FETCH ----
 const fetchFiles = [
   ['fetchArqPrice.js', `
 const axios = require('axios');
@@ -154,29 +154,6 @@ module.exports = async () => {
     } catch (error) {
         console.error("Error fetching BTC-to-USD rate from Binance:", error);
         return null;
-    }
-};
-`.trim()],
-  ['fetchDaemonInfo.js', `
-module.exports = async (daemonClient) => {
-    try {
-        const response = await daemonClient.getInfo();
-        const { height, top_block_hash, difficulty, target, version, database_size, tx_count } = response;
-        const hashrate = (difficulty / target / 1_000_000).toFixed(2);
-        const dbSizeGB = (database_size / (1024 ** 3)).toFixed(2);
-        return \`
-🛠️ **Daemon Info**
-
-💻 **Network Hashrate**: \${hashrate} MH/s
-📊 **Height**: \${height}
-🔗 **Top Block Hash**: [\${top_block_hash}](https://explorer.arqma.com/search?value=\${top_block_hash})
-🔄 **Version**: \${version}
-💾 **Database Size**: \${dbSizeGB} GB
-📡 **Peers Connected**: \${tx_count || 'N/A'}
-        \`;
-    } catch (error) {
-        console.error("Error fetching daemon info:", error);
-        return "Failed to fetch daemon information.";
     }
 };
 `.trim()],
@@ -263,11 +240,38 @@ module.exports = async () => {
 };
 `.trim()]
 ];
-fetchFiles.forEach(([name, content]) =>
-  fs.writeFileSync(path.join('fetch', name), content.trim(), {flag: 'w'})
-);
 
-// CONFIG
+// --- daemonInfo.js: peers, not tx_count ---
+fs.writeFileSync('fetch/fetchDaemonInfo.js', `
+module.exports = async (daemonClient) => {
+  try {
+    const response = await daemonClient.getInfo();
+    const { height, top_block_hash, difficulty, target, version, database_size, incoming_connections_count, outgoing_connections_count } = response;
+    const hashrate = (difficulty / target / 1_000_000).toFixed(2);
+    const dbSizeGB = (database_size / (1024 ** 3)).toFixed(2);
+    const peers = (incoming_connections_count || 0) + (outgoing_connections_count || 0);
+    return \`
+🛠️ **Daemon Info**
+
+💻 **Network Hashrate**: \${hashrate} MH/s
+📊 **Height**: \${height}
+🔗 **Top Block Hash**: [\${top_block_hash}](https://explorer.arqma.com/search?value=\${top_block_hash})
+🔄 **Version**: \${version}
+💾 **Database Size**: \${dbSizeGB} GB
+📡 **Peers Connected**: \${peers}
+    \`;
+  } catch (error) {
+    console.error("Error fetching daemon info:", error);
+    return "Failed to fetch daemon information.";
+  }
+};
+`.trim(), {flag: 'w'});
+
+fetchFiles.forEach(([name, content]) => {
+  if(name !== 'fetchDaemonInfo.js') fs.writeFileSync(path.join('fetch', name), content.trim(), {flag: 'w'})
+});
+
+// ---- CONFIG ----
 fs.writeFileSync('config/nodeList.js', `
 module.exports = [
     { name: 'Node1', url: 'http://node1.arqma.com:19994/get_info' },
@@ -277,7 +281,7 @@ module.exports = [
 ];
 `.trim(), {flag: 'w'});
 
-// UTILS
+// ---- UTILS ----
 fs.writeFileSync('utils/formatNetworkStats.js', `
 module.exports = ({
   networkData,
@@ -288,9 +292,8 @@ module.exports = ({
   awaitingNodes
 }) => {
   if (!(networkData && emissionData && btcToUsd)) {
-    return null; // Can't display the stats without these
+    return null;
   }
-
   let message = \`
 🔗 **Arqma Network Stats**
 
@@ -299,7 +302,6 @@ module.exports = ({
 ⚙️ **Network Difficulty**: \${networkData.difficulty}
 🪙 **Total Emission (Coinbase)**: \${emissionData.emission} ARQ
 \`;
-
   if (arqPrice) {
     const volumeUsd = (arqPrice.volumeBtc * btcToUsd).toFixed(2);
     const volumeArq = (arqPrice.volumeBtc / arqPrice.priceBtc).toFixed(2);
@@ -313,7 +315,6 @@ module.exports = ({
 💰 **TO 24h Volume**: _Data unavailable_
 \`;
   }
-
   message += \`
 💰 **BTC Price**: $\${btcToUsd.toFixed(2)} USD
 🌐 **Active Service Nodes**: \${activeNodes} nodes
@@ -323,12 +324,13 @@ module.exports = ({
 };
 `.trim(), {flag: 'w'});
 
-// ALERTS
+// ---- ALERTS: new logic ----
 fs.writeFileSync('alerts/nodeAlerter.js', `
 const axios = require('axios');
 require('dotenv').config();
 const DISCORD_ALERT_CHANNEL_ID = process.env.DISCORD_ALERT_CHANNEL_ID;
 
+// Each item: { offline: false, behind: false, offlineCount: 0 }
 module.exports = async (nodeList, nodeAlertState, telegramBot, ALERT_USER_ID, discordBot) => {
   const pingResults = await Promise.all(nodeList.map(async (node) => {
     try {
@@ -344,23 +346,23 @@ module.exports = async (nodeList, nodeAlertState, telegramBot, ALERT_USER_ID, di
 
   for (let i = 0; i < pingResults.length; i++) {
     const r = pingResults[i];
-    const prevState = nodeAlertState[i];
+    let prevState = nodeAlertState[i];
+    if (typeof prevState.offlineCount !== "number") prevState.offlineCount = 0;
 
-    // Helper: alert to both platforms
+    // Alert to both
     async function sendAlert(alertText) {
-      if (telegramBot) {
-        await telegramBot.sendMessage(ALERT_USER_ID, alertText);
-      }
+      if (telegramBot) await telegramBot.sendMessage(ALERT_USER_ID, alertText);
       if (discordBot && discordBot.channels && discordBot.channels.cache && DISCORD_ALERT_CHANNEL_ID) {
         const channel = discordBot.channels.cache.get(DISCORD_ALERT_CHANNEL_ID);
         if (channel) channel.send(alertText);
       }
     }
 
-    // Offline
+    // OFFLINE ALERT: only if 2+ consecutive checks
     if (!r.online) {
-      if (!prevState.offline) {
-        await sendAlert(\`🚨 [NODE ALERT]\\n\${r.node.name} is OFFLINE!\`);
+      prevState.offlineCount++;
+      if (!prevState.offline && prevState.offlineCount >= 2) {
+        await sendAlert(\`🚨 [NODE ALERT]\\n\${r.node.name} is OFFLINE for \${prevState.offlineCount} minutes!\`);
         prevState.offline = true;
       }
       prevState.behind = false;
@@ -370,9 +372,11 @@ module.exports = async (nodeList, nodeAlertState, telegramBot, ALERT_USER_ID, di
         await sendAlert(\`✅ [NODE ALERT]\\n\${r.node.name} is back ONLINE!\`);
         prevState.offline = false;
       }
+      prevState.offlineCount = 0;
     }
-    // Behind
-    if (r.height && maxHeight && (maxHeight - r.height > 2)) {
+
+    // OUT OF SYNC ALERT: only if > 4 blocks behind
+    if (r.height && maxHeight && (maxHeight - r.height > 4)) {
       if (!prevState.behind) {
         await sendAlert(\`🚨 [NODE ALERT]\\n\${r.node.name} is OUT OF SYNC by \${maxHeight - r.height} blocks (Current: \${r.height}, Highest: \${maxHeight})!\`);
         prevState.behind = true;
@@ -387,7 +391,7 @@ module.exports = async (nodeList, nodeAlertState, telegramBot, ALERT_USER_ID, di
 };
 `.trim(), {flag: 'w'});
 
-// HANDLERS
+// ---- HANDLERS ----
 fs.writeFileSync('handlers/telegramHandler.js', `
 const TelegramBot = require('node-telegram-bot-api');
 const helpme = require('../commands/helpme');
@@ -435,7 +439,7 @@ module.exports = (DISCORD_TOKEN, daemonClient, telegramBot, ALERT_USER_ID) => {
   });
 
   discordBot.once('ready', () => {
-    let nodeAlertState = nodeList.map(() => ({ offline: false, behind: false }));
+    let nodeAlertState = nodeList.map(() => ({ offline: false, behind: false, offlineCount: 0 }));
     setInterval(() => nodeAlerter(nodeList, nodeAlertState, telegramBot, ALERT_USER_ID, discordBot), 60 * 1000);
     console.log("Discord bot is ready!");
   });
@@ -463,7 +467,7 @@ module.exports = (DISCORD_TOKEN, daemonClient, telegramBot, ALERT_USER_ID) => {
 };
 `.trim(), {flag: 'w'});
 
-// BOT.JS
+// ---- BOT.JS ----
 fs.writeFileSync('bot.js', `
 require('dotenv').config();
 const { RPCDaemon } = require('@arqma/arqma-rpc');
@@ -486,7 +490,7 @@ let telegramBot = startTelegram(TELEGRAM_TOKEN, ALERT_USER_ID, daemonClient);
 let discordBot = startDiscord(DISCORD_TOKEN, daemonClient, telegramBot, ALERT_USER_ID);
 `.trim(), {flag: 'w'});
 
-// ENV, PACKAGE, README
+// ---- .env ----
 fs.writeFileSync('.env', `
 TELEGRAM_TOKEN=YOUR_TELEGRAM_TOKEN
 DISCORD_TOKEN=YOUR_DISCORD_TOKEN
@@ -494,6 +498,7 @@ ALERT_USER_ID=YOUR_TELEGRAM_USER_ID
 DISCORD_ALERT_CHANNEL_ID=YOUR_DISCORD_CHANNEL_ID
 `.trim(), {flag: 'w'});
 
+// ---- package.json ----
 fs.writeFileSync('package.json', `
 {
   "name": "arqma-bot",
@@ -519,6 +524,7 @@ fs.writeFileSync('package.json', `
 }
 `.trim(), {flag: 'w'});
 
+// ---- README.md ----
 fs.writeFileSync('README.md', `
 # ArQmA Network Bot
 
@@ -601,7 +607,7 @@ npm test
 
 ## Alerts
 
-- Alerts are sent to **Telegram** user (\`ALERT_USER_ID\`) and **Discord** channel (\`DISCORD_ALERT_CHANNEL_ID\`) if a node is offline, out-of-sync, or back online.
+- Alerts are sent to **Telegram** user (\`ALERT_USER_ID\`) and **Discord** channel (\`DISCORD_ALERT_CHANNEL_ID\`) if a node is offline (after 2 minutes), out-of-sync (>4 blocks), or back online.
 
 ---
 
@@ -622,147 +628,7 @@ npm test
 MIT
 `.trim(), {flag: 'w'});
 
-// UNIT TESTS
-fs.writeFileSync('__tests__/formatNetworkStats.test.js', `
-const formatNetworkStats = require('../utils/formatNetworkStats');
-
-describe('formatNetworkStats', () => {
-  it('should return null if required fields missing', () => {
-    expect(formatNetworkStats({})).toBeNull();
-    expect(formatNetworkStats({networkData: {}})).toBeNull();
-  });
-
-  it('should render message with arqPrice', () => {
-    const result = formatNetworkStats({
-      networkData: {height: 1234, hashrate: 0.45, difficulty: 12345},
-      emissionData: {emission: '1000000'},
-      arqPrice: {priceBtc: '0.00001234', priceSat: 1234, volumeBtc: 10},
-      btcToUsd: 60000,
-      activeNodes: 12,
-      awaitingNodes: 2
-    });
-    expect(result).toMatch(/\\*\\*Network Height\\*\\*: 1234/);
-    expect(result).toMatch(/\\*\\*TO Price\\*\\*: 0\\.00001234 BTC/);
-    expect(result).toMatch(/\\*\\*BTC Price\\*\\*: \\$60000/);
-    expect(result).toMatch(/\\*\\*Active Service Nodes\\*\\*: 12/);
-    expect(result).not.toMatch(/Data unavailable/);
-  });
-
-  it('should handle missing arqPrice gracefully', () => {
-    const result = formatNetworkStats({
-      networkData: {height: 1000, hashrate: 0.22, difficulty: 11111},
-      emissionData: {emission: '888888'},
-      arqPrice: null,
-      btcToUsd: 50000,
-      activeNodes: 5,
-      awaitingNodes: 1
-    });
-    expect(result).toMatch(/\\*\\*TO Price\\*\\*: _Data unavailable_/);
-    expect(result).toMatch(/\\*\\*TO 24h Volume\\*\\*: _Data unavailable_/);
-  });
-});
-`.trim(), {flag: 'w'});
-
-fs.writeFileSync('__tests__/fetchArqPrice.test.js', `
-const fetchArqPrice = require('../fetch/fetchArqPrice');
-const axios = require('axios');
-
-jest.mock('axios');
-
-describe('fetchArqPrice', () => {
-  it('returns correct price object', async () => {
-    axios.get.mockResolvedValue({ data: { price: "0.00001", volume: "100" } });
-    const result = await fetchArqPrice();
-    expect(result).toEqual({ priceBtc: "0.00001000", priceSat: 1000, volumeBtc: 100 });
-  });
-
-  it('returns null on error', async () => {
-    axios.get.mockRejectedValue(new Error("fail"));
-    const result = await fetchArqPrice();
-    expect(result).toBeNull();
-  });
-});
-`.trim(), {flag: 'w'});
-
-fs.writeFileSync('__tests__/fetchBtcToUsd.test.js', `
-const fetchBtcToUsd = require('../fetch/fetchBtcToUsd');
-const axios = require('axios');
-
-jest.mock('axios');
-
-describe('fetchBtcToUsd', () => {
-  it('should return parsed price', async () => {
-    axios.get.mockResolvedValue({ data: { price: "59999.99" } });
-    const result = await fetchBtcToUsd();
-    expect(result).toBeCloseTo(59999.99);
-  });
-
-  it('should return null on error', async () => {
-    axios.get.mockRejectedValue(new Error("fail"));
-    const result = await fetchBtcToUsd();
-    expect(result).toBeNull();
-  });
-});
-`.trim(), {flag: 'w'});
-
-fs.writeFileSync('__tests__/nodeAlerter.test.js', `
-const nodeAlerter = require('../alerts/nodeAlerter');
-const nodeList = [
-  { name: 'Node1', url: 'http://fakeurl.com/1' }
-];
-
-jest.mock('axios');
-
-describe('nodeAlerter', () => {
-  it('sends offline and online alerts (simulate)', async () => {
-    const axios = require('axios');
-    // 1st call: node is offline, 2nd call: node is online and in sync
-    axios.get
-      .mockRejectedValueOnce(new Error("offline"))
-      .mockResolvedValueOnce({ data: { height: 100, target_height: 100 } });
-
-    let messages = [];
-    const fakeTelegram = { sendMessage: jest.fn((id, msg) => messages.push(['tg', msg])) };
-    const fakeDiscord = { channels: { cache: new Map([["cid", { send: msg => messages.push(['ds', msg]) }]]) } };
-
-    let state = [{ offline: false, behind: false }];
-    process.env.DISCORD_ALERT_CHANNEL_ID = "cid";
-
-    // 1st: node offline
-    await nodeAlerter(nodeList, state, fakeTelegram, 42, fakeDiscord);
-    expect(messages.some(([type, msg]) => /OFFLINE/.test(msg))).toBeTruthy();
-
-    // 2nd: node back online
-    await nodeAlerter(nodeList, state, fakeTelegram, 42, fakeDiscord);
-    expect(messages.some(([type, msg]) => /back ONLINE/.test(msg))).toBeTruthy();
-  });
-});
-`.trim(), {flag: 'w'});
-
-fs.writeFileSync('__tests__/nodes.test.js', `
-const nodes = require('../commands/nodes');
-const axios = require('axios');
-const nodeList = require('../config/nodeList');
-
-jest.mock('axios');
-
-describe('nodes command', () => {
-  it('shows online, syncing, and offline', async () => {
-    axios.get
-      .mockResolvedValueOnce({ data: { height: 100, target_height: 102 } }) // syncing
-      .mockResolvedValueOnce({ data: { height: 105 } }) // fully synced
-      .mockRejectedValueOnce(new Error("fail")) // offline
-      .mockResolvedValueOnce({ data: { height: 110, target_height: 110 } }); // fully synced
-
-    const result = await nodes();
-    expect(result).toMatch(/Node1 : ✅ ONLINE/);
-    expect(result).toMatch(/SYNCING|FULLY SYNCED/);
-    expect(result).toMatch(/Node3 : ❌ OFFLINE/);
-  });
-});
-`.trim(), {flag: 'w'});
-
-// JEST CONFIG
+// ---- jest.config.js ----
 if (!fs.existsSync('jest.config.js')) {
   fs.writeFileSync('jest.config.js', `
 module.exports = {

@@ -20,7 +20,7 @@ module.exports = (DISCORD_TOKEN, daemonClient, telegramBot, ALERT_USER_ID) => {
   });
 
   discordBot.once('ready', () => {
-    let nodeAlertState = nodeList.map(() => ({ offline: false, behind: false }));
+    let nodeAlertState = nodeList.map(() => ({ offline: false, behind: false, offlineCount: 0 }));
     setInterval(() => nodeAlerter(nodeList, nodeAlertState, telegramBot, ALERT_USER_ID, discordBot), 60 * 1000);
     console.log("Discord bot is ready!");
   });
