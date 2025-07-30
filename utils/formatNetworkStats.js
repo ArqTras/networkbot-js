@@ -7,9 +7,8 @@ module.exports = ({
   awaitingNodes
 }) => {
   if (!(networkData && emissionData && btcToUsd)) {
-    return null; // Can't display the stats without these
+    return null;
   }
-
   let message = `
 🔗 **Arqma Network Stats**
 
@@ -18,7 +17,6 @@ module.exports = ({
 ⚙️ **Network Difficulty**: ${networkData.difficulty}
 🪙 **Total Emission (Coinbase)**: ${emissionData.emission} ARQ
 `;
-
   if (arqPrice) {
     const volumeUsd = (arqPrice.volumeBtc * btcToUsd).toFixed(2);
     const volumeArq = (arqPrice.volumeBtc / arqPrice.priceBtc).toFixed(2);
@@ -32,7 +30,6 @@ module.exports = ({
 💰 **TO 24h Volume**: _Data unavailable_
 `;
   }
-
   message += `
 💰 **BTC Price**: $${btcToUsd.toFixed(2)} USD
 🌐 **Active Service Nodes**: ${activeNodes} nodes
