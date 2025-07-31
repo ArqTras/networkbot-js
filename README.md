@@ -79,7 +79,7 @@ npm test
 
 ## Alerts
 
-- Alerts are sent to **Telegram** user (`ALERT_USER_ID`) and **Discord** channel (`DISCORD_ALERT_CHANNEL_ID`) if a node is offline (after 2 minutes), out-of-sync (>4 blocks), or back online.
+- Alerts are sent to **Telegram** user (`ALERT_USER_ID`) and **Discord** channel (`DISCORD_ALERT_CHANNEL_ID`) if a node is offline (after 4 minutes), out-of-sync (>4 blocks), or back online.
 
 ---
 
