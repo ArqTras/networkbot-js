@@ -6,45 +6,35 @@ module.exports = ({
   activeNodes,
   awaitingNodes
 }) => {
-  // Fallbacks
-  const n = networkData || {};
-  const e = emissionData || {};
-  const price = arqPrice || {};
-  const btc = btcToUsd;
-
-  // Format fallback helper
-  const missing = "Data unavailable";
+  // Graceful fallback for each value
+  const safe = (val, f) => (val === undefined || val === null ? "Data unavailable" : f ? f(val) : val);
 
   let message = `
 🔗 Arqma Network Stats
 
-📊 Network Height: ${n.height ?? missing}
-💻 Network Hashrate: ${n.hashrate ?? missing}${n.hashrate ? " MH/s" : ""}
-⚙️ Network Difficulty: ${n.difficulty ?? missing}
-🪙 Total Emission (Coinbase): ${e.emission ?? missing} ARQ
+📊 Network Height: ${safe(networkData && networkData.height)}
+💻 Network Hashrate: ${safe(networkData && networkData.hashrate)}
+⚙️ Network Difficulty: ${safe(networkData && networkData.difficulty)}
+🪙 Total Emission (Coinbase): ${safe(emissionData && emissionData.emission)}
 `;
 
-  // Price and volume
-  if (arqPrice && price.priceBtc && price.priceSat && price.volumeBtc && btc) {
-    const volumeUsd = (price.volumeBtc * btc).toFixed(2);
-    const volumeArq = (price.volumeBtc / price.priceBtc).toFixed(2);
+  if (arqPrice && btcToUsd) {
+    const volumeUsd = (arqPrice.volumeBtc * btcToUsd).toFixed(2);
+    const volumeArq = (arqPrice.volumeBtc / arqPrice.priceBtc).toFixed(2);
     message += `
-💰 TO Price: ${price.priceBtc} BTC (${price.priceSat} sat)
-💰 TO 24h Volume: ${volumeArq} ARQ ($${volumeUsd} USD)
+💰 TO Price: ${safe(arqPrice.priceBtc)}
+💰 TO 24h Volume: ${safe(volumeArq)} ARQ ($${safe(volumeUsd)} USD)
 `;
   } else {
     message += `
-💰 TO Price: ${missing}
-💰 TO 24h Volume: ${missing}
+💰 TO Price: Data unavailable
+💰 TO 24h Volume: Data unavailable
 `;
   }
-
-  // BTC price
   message += `
-💰 BTC Price: $${btc ? btc.toFixed(2) : missing} USD
-🌐 Active Service Nodes: ${activeNodes ?? missing} nodes
-🌐 Service Nodes Awaiting Contributions: ${awaitingNodes ?? missing} nodes
+💰 BTC Price: $${safe(btcToUsd, x => Number(x).toFixed(2))} USD
+🌐 Active Service Nodes: ${safe(activeNodes)} nodes
+🌐 Service Nodes Awaiting Contributions: ${safe(awaitingNodes)} nodes
 `;
-
-  return message.trim();
+  return message;
 };

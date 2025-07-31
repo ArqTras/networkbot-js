@@ -1,7 +1,7 @@
+// generate-structure.js
 const fs = require('fs');
 const path = require('path');
 
-// --- FOLDERS ---
 const folders = [
   'handlers',
   'commands',
@@ -11,7 +11,9 @@ const folders = [
   'utils',
   '__tests__'
 ];
-folders.forEach(folder => { if (!fs.existsSync(folder)) fs.mkdirSync(folder); });
+folders.forEach(folder => {
+  if (!fs.existsSync(folder)) fs.mkdirSync(folder);
+});
 
 // ---- COMMANDS ----
 const commandFiles = [
@@ -89,37 +91,38 @@ module.exports = async () => {
   }) || "Failed to fetch network data.";
 };
 `.trim()],
+  // NODES.JS — correct "syncing" logic, template literals OK
   ['nodes.js', `
 const axios = require('axios');
 const nodeList = require('../config/nodeList');
+
 module.exports = async () => {
-  const pingResults = await Promise.all(nodeList.map(async (node) => {
-      try {
-          const res = await axios.get(node.url, { timeout: 5000 });
-          const data = res.data;
-          let status, desc;
-          if (data.target_height && data.target_height > 0) {
-              const diff = Math.abs(data.target_height - data.height);
-              if (diff > 2) {
-                  status = "SYNCING ⏳";
-                  desc = \`Target Height: \${data.target_height}, Height: \${data.height}\`;
-              } else {
-                  status = "FULLY SYNCED ✅";
-                  desc = \`Height: \${data.height}\`;
-              }
-          } else if (data.height) {
-              status = "FULLY SYNCED ✅";
-              desc = \`Height: \${data.height}\`;
-          } else {
-              status = "UNKNOWN";
-              desc = "No data";
-          }
-          return \`\${node.name} : ✅ ONLINE | \${desc} (\${status})\`;
-      } catch (e) {
-          return \`\${node.name} : ❌ OFFLINE\`;
-      }
+  const statuses = await Promise.all(nodeList.map(async (node) => {
+    try {
+      const res = await axios.get(node.url, { timeout: 5000 });
+      const data = res.data;
+      return { name: node.name, online: true, height: data.height || 0, target_height: data.target_height || 0 };
+    } catch (e) {
+      return { name: node.name, online: false, height: null, target_height: null };
+    }
   }));
-  return pingResults.join('\\n');
+
+  // Find highest height among online nodes
+  const onlineHeights = statuses.filter(n => n.online).map(n => n.height || 0);
+  const maxHeight = onlineHeights.length ? Math.max(...onlineHeights) : 0;
+
+  const output = statuses.map(node => {
+    if (!node.online) {
+      return \`\${node.name} : ❌ OFFLINE\`;
+    }
+    if (node.height < maxHeight) {
+      return \`\${node.name} : ✅ ONLINE | Height: \${node.height}, Target Height: \${maxHeight} (SYNCING ⏳)\`;
+    } else {
+      return \`\${node.name} : ✅ ONLINE | Height: \${node.height} (FULLY SYNCED ✅)\`;
+    }
+  });
+
+  return output.join('\\n');
 };
 `.trim()]
 ];
@@ -134,7 +137,6 @@ const axios = require('axios');
 module.exports = async () => {
     try {
         const response = await axios.get('https://tradeogre.com/api/v1/ticker/arq-btc');
-        if (!response.data || !response.data.price || !response.data.volume) return null;
         const priceBtc = parseFloat(response.data.price).toFixed(8);
         const priceSat = Math.round(priceBtc * 100_000_000);
         const volumeBtc = parseFloat(response.data.volume);
@@ -162,13 +164,11 @@ const axios = require('axios');
 module.exports = async () => {
     try {
         const response = await axios.get('https://explorer.arqma.com/api/emission');
-        const emission = response.data && response.data.data && response.data.data.coinbase
-            ? Math.floor(response.data.data.coinbase / 100_000)
-            : null;
-        return { emission: emission ? emission.toString().slice(0, 8) : null };
+        const emission = Math.floor(response.data.data.coinbase / 100_000);
+        return { emission: emission.toString().slice(0, 8) };
     } catch (error) {
         console.error("Error fetching emission data:", error);
-        return { emission: null };
+        return null;
     }
 };
 `.trim()],
@@ -177,12 +177,12 @@ const axios = require('axios');
 module.exports = async () => {
     try {
         const response = await axios.get('https://explorer.arqma.com/api/networkinfo');
-        const data = response.data && response.data.data;
+        const data = response.data.data;
         if (!data) return null;
         return {
-            height: data.height ?? null,
-            hashrate: data.hash_rate ? (data.hash_rate / 1_000_000).toFixed(2) : null,
-            difficulty: data.difficulty ?? null
+            height: data.height,
+            hashrate: (data.hash_rate / 1_000_000).toFixed(2),
+            difficulty: data.difficulty
         };
     } catch (error) {
         console.error("Error fetching network info:", error);
@@ -232,19 +232,19 @@ module.exports = async () => {
         const response = await axios.get('https://explorer.arqma.com/service_nodes');
         const $ = cheerio.load(response.data);
         const activeNodesText = $('body > div:nth-child(3) > h2:nth-child(4)').text().trim();
-        const activeNodes = parseInt(activeNodesText.replace(/\\D/g, '')) || null;
+        const activeNodes = parseInt(activeNodesText.replace(/\\D/g, ''));
         const awaitingNodesText = $('#service-nodes-awaiting > span:nth-child(1)').text().trim();
-        const awaitingNodes = parseInt(awaitingNodesText.replace(/\\D/g, '')) || null;
+        const awaitingNodes = parseInt(awaitingNodesText.replace(/\\D/g, ''));
         return { activeNodes, awaitingNodes };
     } catch (error) {
         console.error("Error fetching service node data:", error);
-        return { activeNodes: null, awaitingNodes: null };
+        return { activeNodes: 0, awaitingNodes: 0 };
     }
 };
 `.trim()]
 ];
 
-// --- fetchDaemonInfo.js ---
+// --- daemonInfo.js: peers, not tx_count ---
 fs.writeFileSync('fetch/fetchDaemonInfo.js', `
 module.exports = async (daemonClient) => {
   try {
@@ -296,57 +296,46 @@ module.exports = ({
   activeNodes,
   awaitingNodes
 }) => {
-  // Fallbacks
-  const n = networkData || {};
-  const e = emissionData || {};
-  const price = arqPrice || {};
-  const btc = btcToUsd;
-
-  // Format fallback helper
-  const missing = "Data unavailable";
+  // Graceful fallback for each value
+  const safe = (val, f) => (val === undefined || val === null ? "Data unavailable" : f ? f(val) : val);
 
   let message = \`
 🔗 Arqma Network Stats
 
-📊 Network Height: \${n.height ?? missing}
-💻 Network Hashrate: \${n.hashrate ?? missing}\${n.hashrate ? " MH/s" : ""}
-⚙️ Network Difficulty: \${n.difficulty ?? missing}
-🪙 Total Emission (Coinbase): \${e.emission ?? missing} ARQ
+📊 Network Height: \${safe(networkData && networkData.height)}
+💻 Network Hashrate: \${safe(networkData && networkData.hashrate)}
+⚙️ Network Difficulty: \${safe(networkData && networkData.difficulty)}
+🪙 Total Emission (Coinbase): \${safe(emissionData && emissionData.emission)}
 \`;
 
-  // Price and volume
-  if (arqPrice && price.priceBtc && price.priceSat && price.volumeBtc && btc) {
-    const volumeUsd = (price.volumeBtc * btc).toFixed(2);
-    const volumeArq = (price.volumeBtc / price.priceBtc).toFixed(2);
+  if (arqPrice && btcToUsd) {
+    const volumeUsd = (arqPrice.volumeBtc * btcToUsd).toFixed(2);
+    const volumeArq = (arqPrice.volumeBtc / arqPrice.priceBtc).toFixed(2);
     message += \`
-💰 TO Price: \${price.priceBtc} BTC (\${price.priceSat} sat)
-💰 TO 24h Volume: \${volumeArq} ARQ ($\${volumeUsd} USD)
+💰 TO Price: \${safe(arqPrice.priceBtc)}
+💰 TO 24h Volume: \${safe(volumeArq)} ARQ ($\${safe(volumeUsd)} USD)
 \`;
   } else {
     message += \`
-💰 TO Price: \${missing}
-💰 TO 24h Volume: \${missing}
+💰 TO Price: Data unavailable
+💰 TO 24h Volume: Data unavailable
 \`;
   }
-
-  // BTC price
   message += \`
-💰 BTC Price: $\${btc ? btc.toFixed(2) : missing} USD
-🌐 Active Service Nodes: \${activeNodes ?? missing} nodes
-🌐 Service Nodes Awaiting Contributions: \${awaitingNodes ?? missing} nodes
+💰 BTC Price: $\${safe(btcToUsd, x => Number(x).toFixed(2))} USD
+🌐 Active Service Nodes: \${safe(activeNodes)} nodes
+🌐 Service Nodes Awaiting Contributions: \${safe(awaitingNodes)} nodes
 \`;
-
-  return message.trim();
+  return message;
 };
 `.trim(), {flag: 'w'});
 
-// ---- ALERTS ----
+// ---- ALERTS: new logic ----
 fs.writeFileSync('alerts/nodeAlerter.js', `
 const axios = require('axios');
 require('dotenv').config();
 const DISCORD_ALERT_CHANNEL_ID = process.env.DISCORD_ALERT_CHANNEL_ID;
 
-// Each item: { offline: false, behind: false, offlineCount: 0 }
 module.exports = async (nodeList, nodeAlertState, telegramBot, ALERT_USER_ID, discordBot) => {
   const pingResults = await Promise.all(nodeList.map(async (node) => {
     try {
@@ -365,6 +354,7 @@ module.exports = async (nodeList, nodeAlertState, telegramBot, ALERT_USER_ID, di
     let prevState = nodeAlertState[i];
     if (typeof prevState.offlineCount !== "number") prevState.offlineCount = 0;
 
+    // Alert to both
     async function sendAlert(alertText) {
       if (telegramBot) await telegramBot.sendMessage(ALERT_USER_ID, alertText);
       if (discordBot && discordBot.channels && discordBot.channels.cache && DISCORD_ALERT_CHANNEL_ID) {
@@ -373,7 +363,7 @@ module.exports = async (nodeList, nodeAlertState, telegramBot, ALERT_USER_ID, di
       }
     }
 
-    // OFFLINE ALERT: 4 minutes (4 cycles, if 1 min interval)
+    // OFFLINE ALERT: only if 4+ consecutive checks (4 min)
     if (!r.online) {
       prevState.offlineCount++;
       if (!prevState.offline && prevState.offlineCount >= 4) {
@@ -652,4 +642,4 @@ module.exports = {
   `.trim(), {flag: 'w'});
 }
 
-console.log('✅ All files generated!\n- Run npm install\n- Fill in .env\n- npm start\n- npm test');
+console.log('✅ All files, handlers, code, .env, README.md, and matching tests generated!\n- Run npm install\n- Fill in .env\n- npm start\n- npm test');
