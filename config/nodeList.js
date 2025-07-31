@@ -3,6 +3,6 @@ module.exports = [
     { name: 'Node2', url: 'http://node2.arqma.com:19994/get_info' },
     { name: 'Node3', url: 'http://node3.arqma.com:19994/get_info' },
     { name: 'Node4', url: 'http://node4.arqma.com:19994/get_info' },
-    { name: 'SN_NAT', url: 'http://192.168.10.200:49994/get_info' },
+    { name: 'SNNAT', url: 'http://192.168.10.200:49994/get_info' },
     { name: 'Pool', url: 'http://127.0.0.1:19998/get_info' }
 ];
