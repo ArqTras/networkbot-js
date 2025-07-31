@@ -21,7 +21,6 @@ module.exports = async (nodeList, nodeAlertState, telegramBot, ALERT_USER_ID, di
     let prevState = nodeAlertState[i];
     if (typeof prevState.offlineCount !== "number") prevState.offlineCount = 0;
 
-    // Alert to both
     async function sendAlert(alertText) {
       if (telegramBot) await telegramBot.sendMessage(ALERT_USER_ID, alertText);
       if (discordBot && discordBot.channels && discordBot.channels.cache && DISCORD_ALERT_CHANNEL_ID) {
@@ -30,10 +29,10 @@ module.exports = async (nodeList, nodeAlertState, telegramBot, ALERT_USER_ID, di
       }
     }
 
-    // OFFLINE ALERT: only if 2+ consecutive checks
+    // OFFLINE ALERT: 4 minutes (4 cycles, if 1 min interval)
     if (!r.online) {
       prevState.offlineCount++;
-      if (!prevState.offline && prevState.offlineCount >= 2) {
+      if (!prevState.offline && prevState.offlineCount >= 4) {
         await sendAlert(`🚨 [NODE ALERT]\n${r.node.name} is OFFLINE for ${prevState.offlineCount} minutes!`);
         prevState.offline = true;
       }

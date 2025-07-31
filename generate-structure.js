@@ -1,6 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 
+// --- FOLDERS ---
 const folders = [
   'handlers',
   'commands',
@@ -10,9 +11,7 @@ const folders = [
   'utils',
   '__tests__'
 ];
-folders.forEach(folder => {
-  if (!fs.existsSync(folder)) fs.mkdirSync(folder);
-});
+folders.forEach(folder => { if (!fs.existsSync(folder)) fs.mkdirSync(folder); });
 
 // ---- COMMANDS ----
 const commandFiles = [
@@ -135,6 +134,7 @@ const axios = require('axios');
 module.exports = async () => {
     try {
         const response = await axios.get('https://tradeogre.com/api/v1/ticker/arq-btc');
+        if (!response.data || !response.data.price || !response.data.volume) return null;
         const priceBtc = parseFloat(response.data.price).toFixed(8);
         const priceSat = Math.round(priceBtc * 100_000_000);
         const volumeBtc = parseFloat(response.data.volume);
@@ -162,11 +162,13 @@ const axios = require('axios');
 module.exports = async () => {
     try {
         const response = await axios.get('https://explorer.arqma.com/api/emission');
-        const emission = Math.floor(response.data.data.coinbase / 100_000);
-        return { emission: emission.toString().slice(0, 8) };
+        const emission = response.data && response.data.data && response.data.data.coinbase
+            ? Math.floor(response.data.data.coinbase / 100_000)
+            : null;
+        return { emission: emission ? emission.toString().slice(0, 8) : null };
     } catch (error) {
         console.error("Error fetching emission data:", error);
-        return null;
+        return { emission: null };
     }
 };
 `.trim()],
@@ -175,11 +177,12 @@ const axios = require('axios');
 module.exports = async () => {
     try {
         const response = await axios.get('https://explorer.arqma.com/api/networkinfo');
-        const data = response.data.data;
+        const data = response.data && response.data.data;
+        if (!data) return null;
         return {
-            height: data.height,
-            hashrate: (data.hash_rate / 1_000_000).toFixed(2),
-            difficulty: data.difficulty
+            height: data.height ?? null,
+            hashrate: data.hash_rate ? (data.hash_rate / 1_000_000).toFixed(2) : null,
+            difficulty: data.difficulty ?? null
         };
     } catch (error) {
         console.error("Error fetching network info:", error);
@@ -229,19 +232,19 @@ module.exports = async () => {
         const response = await axios.get('https://explorer.arqma.com/service_nodes');
         const $ = cheerio.load(response.data);
         const activeNodesText = $('body > div:nth-child(3) > h2:nth-child(4)').text().trim();
-        const activeNodes = parseInt(activeNodesText.replace(/\\D/g, ''));
+        const activeNodes = parseInt(activeNodesText.replace(/\\D/g, '')) || null;
         const awaitingNodesText = $('#service-nodes-awaiting > span:nth-child(1)').text().trim();
-        const awaitingNodes = parseInt(awaitingNodesText.replace(/\\D/g, ''));
+        const awaitingNodes = parseInt(awaitingNodesText.replace(/\\D/g, '')) || null;
         return { activeNodes, awaitingNodes };
     } catch (error) {
         console.error("Error fetching service node data:", error);
-        return { activeNodes: 0, awaitingNodes: 0 };
+        return { activeNodes: null, awaitingNodes: null };
     }
 };
 `.trim()]
 ];
 
-// --- daemonInfo.js: peers, not tx_count ---
+// --- fetchDaemonInfo.js ---
 fs.writeFileSync('fetch/fetchDaemonInfo.js', `
 module.exports = async (daemonClient) => {
   try {
@@ -277,7 +280,9 @@ module.exports = [
     { name: 'Node1', url: 'http://node1.arqma.com:19994/get_info' },
     { name: 'Node2', url: 'http://node2.arqma.com:19994/get_info' },
     { name: 'Node3', url: 'http://node3.arqma.com:19994/get_info' },
-    { name: 'Node4', url: 'http://node4.arqma.com:19994/get_info' }
+    { name: 'Node4', url: 'http://node4.arqma.com:19994/get_info' },
+    { name: 'SNNAT', url: 'http://192.168.10.200:49994/get_info' },
+    { name: 'Pool', url: 'http://127.0.0.1:19998/get_info' }
 ];
 `.trim(), {flag: 'w'});
 
@@ -291,40 +296,51 @@ module.exports = ({
   activeNodes,
   awaitingNodes
 }) => {
-  if (!(networkData && emissionData && btcToUsd)) {
-    return null;
-  }
-  let message = \`
-🔗 **Arqma Network Stats**
+  // Fallbacks
+  const n = networkData || {};
+  const e = emissionData || {};
+  const price = arqPrice || {};
+  const btc = btcToUsd;
 
-📊 **Network Height**: \${networkData.height}
-💻 **Network Hashrate**: \${networkData.hashrate} MH/s
-⚙️ **Network Difficulty**: \${networkData.difficulty}
-🪙 **Total Emission (Coinbase)**: \${emissionData.emission} ARQ
+  // Format fallback helper
+  const missing = "Data unavailable";
+
+  let message = \`
+🔗 Arqma Network Stats
+
+📊 Network Height: \${n.height ?? missing}
+💻 Network Hashrate: \${n.hashrate ?? missing}\${n.hashrate ? " MH/s" : ""}
+⚙️ Network Difficulty: \${n.difficulty ?? missing}
+🪙 Total Emission (Coinbase): \${e.emission ?? missing} ARQ
 \`;
-  if (arqPrice) {
-    const volumeUsd = (arqPrice.volumeBtc * btcToUsd).toFixed(2);
-    const volumeArq = (arqPrice.volumeBtc / arqPrice.priceBtc).toFixed(2);
+
+  // Price and volume
+  if (arqPrice && price.priceBtc && price.priceSat && price.volumeBtc && btc) {
+    const volumeUsd = (price.volumeBtc * btc).toFixed(2);
+    const volumeArq = (price.volumeBtc / price.priceBtc).toFixed(2);
     message += \`
-💰 **TO Price**: \${arqPrice.priceBtc} BTC (\${arqPrice.priceSat} sat)
-💰 **TO 24h Volume**: \${volumeArq} ARQ ($\${volumeUsd} USD)
+💰 TO Price: \${price.priceBtc} BTC (\${price.priceSat} sat)
+💰 TO 24h Volume: \${volumeArq} ARQ ($\${volumeUsd} USD)
 \`;
   } else {
     message += \`
-💰 **TO Price**: _Data unavailable_
-💰 **TO 24h Volume**: _Data unavailable_
+💰 TO Price: \${missing}
+💰 TO 24h Volume: \${missing}
 \`;
   }
+
+  // BTC price
   message += \`
-💰 **BTC Price**: $\${btcToUsd.toFixed(2)} USD
-🌐 **Active Service Nodes**: \${activeNodes} nodes
-🌐 **Service Nodes Awaiting Contributions**: \${awaitingNodes} nodes
+💰 BTC Price: $\${btc ? btc.toFixed(2) : missing} USD
+🌐 Active Service Nodes: \${activeNodes ?? missing} nodes
+🌐 Service Nodes Awaiting Contributions: \${awaitingNodes ?? missing} nodes
 \`;
-  return message;
+
+  return message.trim();
 };
 `.trim(), {flag: 'w'});
 
-// ---- ALERTS: new logic ----
+// ---- ALERTS ----
 fs.writeFileSync('alerts/nodeAlerter.js', `
 const axios = require('axios');
 require('dotenv').config();
@@ -349,7 +365,6 @@ module.exports = async (nodeList, nodeAlertState, telegramBot, ALERT_USER_ID, di
     let prevState = nodeAlertState[i];
     if (typeof prevState.offlineCount !== "number") prevState.offlineCount = 0;
 
-    // Alert to both
     async function sendAlert(alertText) {
       if (telegramBot) await telegramBot.sendMessage(ALERT_USER_ID, alertText);
       if (discordBot && discordBot.channels && discordBot.channels.cache && DISCORD_ALERT_CHANNEL_ID) {
@@ -358,10 +373,10 @@ module.exports = async (nodeList, nodeAlertState, telegramBot, ALERT_USER_ID, di
       }
     }
 
-    // OFFLINE ALERT: only if 2+ consecutive checks
+    // OFFLINE ALERT: 4 minutes (4 cycles, if 1 min interval)
     if (!r.online) {
       prevState.offlineCount++;
-      if (!prevState.offline && prevState.offlineCount >= 2) {
+      if (!prevState.offline && prevState.offlineCount >= 4) {
         await sendAlert(\`🚨 [NODE ALERT]\\n\${r.node.name} is OFFLINE for \${prevState.offlineCount} minutes!\`);
         prevState.offline = true;
       }
@@ -607,7 +622,7 @@ npm test
 
 ## Alerts
 
-- Alerts are sent to **Telegram** user (\`ALERT_USER_ID\`) and **Discord** channel (\`DISCORD_ALERT_CHANNEL_ID\`) if a node is offline (after 2 minutes), out-of-sync (>4 blocks), or back online.
+- Alerts are sent to **Telegram** user (\`ALERT_USER_ID\`) and **Discord** channel (\`DISCORD_ALERT_CHANNEL_ID\`) if a node is offline (after 4 minutes), out-of-sync (>4 blocks), or back online.
 
 ---
 
@@ -637,4 +652,4 @@ module.exports = {
   `.trim(), {flag: 'w'});
 }
 
-console.log('✅ All files, handlers, code, .env, README.md, and matching tests generated!\n- Run npm install\n- Fill in .env\n- npm start\n- npm test');
+console.log('✅ All files generated!\n- Run npm install\n- Fill in .env\n- npm start\n- npm test');
