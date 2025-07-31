@@ -1,7 +1,11 @@
 // generate-structure.js
+// Generates full bot structure with correct template string escaping!
+// English comments throughout.
+
 const fs = require('fs');
 const path = require('path');
 
+// ----- Folders -----
 const folders = [
   'handlers',
   'commands',
@@ -15,7 +19,7 @@ folders.forEach(folder => {
   if (!fs.existsSync(folder)) fs.mkdirSync(folder);
 });
 
-// ---- COMMANDS ----
+// ----- COMMANDS -----
 const commandFiles = [
   ['helpme.js', `
 module.exports = (platform) => {
@@ -91,35 +95,55 @@ module.exports = async () => {
   }) || "Failed to fetch network data.";
 };
 `.trim()],
-  // NODES.JS — correct "syncing" logic, template literals OK
   ['nodes.js', `
 const axios = require('axios');
 const nodeList = require('../config/nodeList');
 
+/**
+ * Returns the status of all nodes in the list.
+ * Handles BUSY/SYNCING, OFFLINE, FULLY SYNCED.
+ */
 module.exports = async () => {
-  const statuses = await Promise.all(nodeList.map(async (node) => {
+  // Fetch all nodes in parallel, with extended timeout and error details
+  const nodeStatuses = await Promise.all(nodeList.map(async (node) => {
     try {
-      const res = await axios.get(node.url, { timeout: 5000 });
+      const res = await axios.get(node.url, { timeout: 15000 }); // 15 seconds
       const data = res.data;
-      return { name: node.name, online: true, height: data.height || 0, target_height: data.target_height || 0 };
+      return {
+        name: node.name,
+        online: true,
+        height: data.height || 0,
+        target_height: data.target_height || data.height || 0,
+        syncing: typeof data.target_height === "number" && data.target_height - data.height > 1
+      };
     } catch (e) {
-      return { name: node.name, online: false, height: null, target_height: null };
+      // Timeout (BUSY/SYNCING), or truly offline
+      const offlineMsg =
+        e.code === 'ECONNABORTED' ? '⌛ BUSY/SYNCING (timeout)' :
+        (e.response && e.response.status === 503) ? '⌛ SYNCING (HTTP 503)' :
+        '❌ OFFLINE';
+      return { name: node.name, online: false, errorType: offlineMsg };
     }
   }));
 
-  // Find highest height among online nodes
-  const onlineHeights = statuses.filter(n => n.online).map(n => n.height || 0);
-  const maxHeight = onlineHeights.length ? Math.max(...onlineHeights) : 0;
+  // Find the highest reported height
+  const maxHeight = Math.max(
+    ...nodeStatuses.filter(n => n.online).map(n => n.height || 0),
+    0
+  );
 
-  const output = statuses.map(node => {
+  // Build readable output for each node
+  const output = nodeStatuses.map(node => {
     if (!node.online) {
-      return \`\${node.name} : ❌ OFFLINE\`;
+      return \`\${node.name} : \${node.errorType}\`;
     }
     if (node.height < maxHeight) {
       return \`\${node.name} : ✅ ONLINE | Height: \${node.height}, Target Height: \${maxHeight} (SYNCING ⏳)\`;
-    } else {
-      return \`\${node.name} : ✅ ONLINE | Height: \${node.height} (FULLY SYNCED ✅)\`;
     }
+    if (node.syncing && node.target_height > node.height) {
+      return \`\${node.name} : ✅ ONLINE | Height: \${node.height}, Target Height: \${node.target_height} (SYNCING ⏳)\`;
+    }
+    return \`\${node.name} : ✅ ONLINE | Height: \${node.height} (FULLY SYNCED ✅)\`;
   });
 
   return output.join('\\n');
@@ -130,7 +154,7 @@ commandFiles.forEach(([name, content]) =>
   fs.writeFileSync(path.join('commands', name), content.trim(), {flag: 'w'})
 );
 
-// ---- FETCH ----
+// ----- FETCH -----
 const fetchFiles = [
   ['fetchArqPrice.js', `
 const axios = require('axios');
@@ -244,7 +268,7 @@ module.exports = async () => {
 `.trim()]
 ];
 
-// --- daemonInfo.js: peers, not tx_count ---
+// --- daemonInfo.js ---
 fs.writeFileSync('fetch/fetchDaemonInfo.js', `
 module.exports = async (daemonClient) => {
   try {
@@ -274,7 +298,7 @@ fetchFiles.forEach(([name, content]) => {
   if(name !== 'fetchDaemonInfo.js') fs.writeFileSync(path.join('fetch', name), content.trim(), {flag: 'w'})
 });
 
-// ---- CONFIG ----
+// ----- CONFIG -----
 fs.writeFileSync('config/nodeList.js', `
 module.exports = [
     { name: 'Node1', url: 'http://node1.arqma.com:19994/get_info' },
@@ -286,7 +310,7 @@ module.exports = [
 ];
 `.trim(), {flag: 'w'});
 
-// ---- UTILS ----
+// ----- UTILS -----
 fs.writeFileSync('utils/formatNetworkStats.js', `
 module.exports = ({
   networkData,
@@ -296,24 +320,20 @@ module.exports = ({
   activeNodes,
   awaitingNodes
 }) => {
-  // Graceful fallback for each value
-  const safe = (val, f) => (val === undefined || val === null ? "Data unavailable" : f ? f(val) : val);
-
   let message = \`
 🔗 Arqma Network Stats
 
-📊 Network Height: \${safe(networkData && networkData.height)}
-💻 Network Hashrate: \${safe(networkData && networkData.hashrate)}
-⚙️ Network Difficulty: \${safe(networkData && networkData.difficulty)}
-🪙 Total Emission (Coinbase): \${safe(emissionData && emissionData.emission)}
+📊 Network Height: \${networkData && networkData.height !== undefined ? networkData.height : 'Data unavailable'}
+💻 Network Hashrate: \${networkData && networkData.hashrate !== undefined ? networkData.hashrate + ' MH/s' : 'Data unavailable'}
+⚙️ Network Difficulty: \${networkData && networkData.difficulty !== undefined ? networkData.difficulty : 'Data unavailable'}
+🪙 Total Emission (Coinbase): \${emissionData && emissionData.emission !== undefined ? emissionData.emission + ' ARQ' : 'Data unavailable'}
 \`;
-
   if (arqPrice && btcToUsd) {
     const volumeUsd = (arqPrice.volumeBtc * btcToUsd).toFixed(2);
     const volumeArq = (arqPrice.volumeBtc / arqPrice.priceBtc).toFixed(2);
     message += \`
-💰 TO Price: \${safe(arqPrice.priceBtc)}
-💰 TO 24h Volume: \${safe(volumeArq)} ARQ ($\${safe(volumeUsd)} USD)
+💰 TO Price: \${arqPrice.priceBtc} BTC (\${arqPrice.priceSat} sat)
+💰 TO 24h Volume: \${volumeArq} ARQ ($\${volumeUsd} USD)
 \`;
   } else {
     message += \`
@@ -322,16 +342,17 @@ module.exports = ({
 \`;
   }
   message += \`
-💰 BTC Price: $\${safe(btcToUsd, x => Number(x).toFixed(2))} USD
-🌐 Active Service Nodes: \${safe(activeNodes)} nodes
-🌐 Service Nodes Awaiting Contributions: \${safe(awaitingNodes)} nodes
+💰 BTC Price: $\${btcToUsd !== undefined && btcToUsd !== null ? btcToUsd.toFixed(2) : 'Data unavailable'} USD
+🌐 Active Service Nodes: \${activeNodes !== undefined ? activeNodes + ' nodes' : 'Data unavailable'}
+🌐 Service Nodes Awaiting Contributions: \${awaitingNodes !== undefined ? awaitingNodes + ' nodes' : 'Data unavailable'}
 \`;
   return message;
 };
 `.trim(), {flag: 'w'});
 
-// ---- ALERTS: new logic ----
+// ----- ALERTS -----
 fs.writeFileSync('alerts/nodeAlerter.js', `
+// Node alert logic for offline/sync notifications to Telegram & Discord
 const axios = require('axios');
 require('dotenv').config();
 const DISCORD_ALERT_CHANNEL_ID = process.env.DISCORD_ALERT_CHANNEL_ID;
@@ -339,7 +360,7 @@ const DISCORD_ALERT_CHANNEL_ID = process.env.DISCORD_ALERT_CHANNEL_ID;
 module.exports = async (nodeList, nodeAlertState, telegramBot, ALERT_USER_ID, discordBot) => {
   const pingResults = await Promise.all(nodeList.map(async (node) => {
     try {
-      const res = await axios.get(node.url, { timeout: 5000 });
+      const res = await axios.get(node.url, { timeout: 10000 });
       const data = res.data;
       return { online: true, height: data.height || 0, target_height: data.target_height || 0, node };
     } catch (e) {
@@ -363,7 +384,7 @@ module.exports = async (nodeList, nodeAlertState, telegramBot, ALERT_USER_ID, di
       }
     }
 
-    // OFFLINE ALERT: only if 4+ consecutive checks (4 min)
+    // OFFLINE ALERT: only if 4+ consecutive checks
     if (!r.online) {
       prevState.offlineCount++;
       if (!prevState.offline && prevState.offlineCount >= 4) {
@@ -396,7 +417,7 @@ module.exports = async (nodeList, nodeAlertState, telegramBot, ALERT_USER_ID, di
 };
 `.trim(), {flag: 'w'});
 
-// ---- HANDLERS ----
+// ----- HANDLERS -----
 fs.writeFileSync('handlers/telegramHandler.js', `
 const TelegramBot = require('node-telegram-bot-api');
 const helpme = require('../commands/helpme');
@@ -472,7 +493,7 @@ module.exports = (DISCORD_TOKEN, daemonClient, telegramBot, ALERT_USER_ID) => {
 };
 `.trim(), {flag: 'w'});
 
-// ---- BOT.JS ----
+// ----- bot.js -----
 fs.writeFileSync('bot.js', `
 require('dotenv').config();
 const { RPCDaemon } = require('@arqma/arqma-rpc');
@@ -495,7 +516,7 @@ let telegramBot = startTelegram(TELEGRAM_TOKEN, ALERT_USER_ID, daemonClient);
 let discordBot = startDiscord(DISCORD_TOKEN, daemonClient, telegramBot, ALERT_USER_ID);
 `.trim(), {flag: 'w'});
 
-// ---- .env ----
+// ----- .env -----
 fs.writeFileSync('.env', `
 TELEGRAM_TOKEN=YOUR_TELEGRAM_TOKEN
 DISCORD_TOKEN=YOUR_DISCORD_TOKEN
@@ -503,7 +524,7 @@ ALERT_USER_ID=YOUR_TELEGRAM_USER_ID
 DISCORD_ALERT_CHANNEL_ID=YOUR_DISCORD_CHANNEL_ID
 `.trim(), {flag: 'w'});
 
-// ---- package.json ----
+// ----- package.json -----
 fs.writeFileSync('package.json', `
 {
   "name": "arqma-bot",
@@ -529,7 +550,7 @@ fs.writeFileSync('package.json', `
 }
 `.trim(), {flag: 'w'});
 
-// ---- README.md ----
+// ----- README.md -----
 fs.writeFileSync('README.md', `
 # ArQmA Network Bot
 
@@ -580,12 +601,6 @@ DISCORD_ALERT_CHANNEL_ID=... # Discord channel ID for alerts
 npm start
 \`\`\`
 
-### 5. Run the tests
-
-\`\`\`bash
-npm test
-\`\`\`
-
 ---
 
 ## Bot Commands
@@ -633,7 +648,7 @@ npm test
 MIT
 `.trim(), {flag: 'w'});
 
-// ---- jest.config.js ----
+// ----- jest.config.js -----
 if (!fs.existsSync('jest.config.js')) {
   fs.writeFileSync('jest.config.js', `
 module.exports = {
@@ -642,4 +657,4 @@ module.exports = {
   `.trim(), {flag: 'w'});
 }
 
-console.log('✅ All files, handlers, code, .env, README.md, and matching tests generated!\n- Run npm install\n- Fill in .env\n- npm start\n- npm test');
+console.log('✅ All files, handlers, code, .env, README.md generated!\n- Run npm install\n- Fill in .env\n- npm start\n- npm test');

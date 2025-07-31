@@ -1,3 +1,4 @@
+// Node alert logic for offline/sync notifications to Telegram & Discord
 const axios = require('axios');
 require('dotenv').config();
 const DISCORD_ALERT_CHANNEL_ID = process.env.DISCORD_ALERT_CHANNEL_ID;
@@ -5,7 +6,7 @@ const DISCORD_ALERT_CHANNEL_ID = process.env.DISCORD_ALERT_CHANNEL_ID;
 module.exports = async (nodeList, nodeAlertState, telegramBot, ALERT_USER_ID, discordBot) => {
   const pingResults = await Promise.all(nodeList.map(async (node) => {
     try {
-      const res = await axios.get(node.url, { timeout: 5000 });
+      const res = await axios.get(node.url, { timeout: 10000 });
       const data = res.data;
       return { online: true, height: data.height || 0, target_height: data.target_height || 0, node };
     } catch (e) {
@@ -29,7 +30,7 @@ module.exports = async (nodeList, nodeAlertState, telegramBot, ALERT_USER_ID, di
       }
     }
 
-    // OFFLINE ALERT: only if 4+ consecutive checks (4 min)
+    // OFFLINE ALERT: only if 4+ consecutive checks
     if (!r.online) {
       prevState.offlineCount++;
       if (!prevState.offline && prevState.offlineCount >= 4) {

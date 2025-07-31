@@ -1,30 +1,51 @@
 const axios = require('axios');
 const nodeList = require('../config/nodeList');
 
+/**
+ * Returns the status of all nodes in the list.
+ * Handles BUSY/SYNCING, OFFLINE, FULLY SYNCED.
+ */
 module.exports = async () => {
-  const statuses = await Promise.all(nodeList.map(async (node) => {
+  // Fetch all nodes in parallel, with extended timeout and error details
+  const nodeStatuses = await Promise.all(nodeList.map(async (node) => {
     try {
-      const res = await axios.get(node.url, { timeout: 5000 });
+      const res = await axios.get(node.url, { timeout: 15000 }); // 15 seconds
       const data = res.data;
-      return { name: node.name, online: true, height: data.height || 0, target_height: data.target_height || 0 };
+      return {
+        name: node.name,
+        online: true,
+        height: data.height || 0,
+        target_height: data.target_height || data.height || 0,
+        syncing: typeof data.target_height === "number" && data.target_height - data.height > 1
+      };
     } catch (e) {
-      return { name: node.name, online: false, height: null, target_height: null };
+      // Timeout (BUSY/SYNCING), or truly offline
+      const offlineMsg =
+        e.code === 'ECONNABORTED' ? '⌛ BUSY/SYNCING (timeout)' :
+        (e.response && e.response.status === 503) ? '⌛ SYNCING (HTTP 503)' :
+        '❌ OFFLINE';
+      return { name: node.name, online: false, errorType: offlineMsg };
     }
   }));
 
-  // Find highest height among online nodes
-  const onlineHeights = statuses.filter(n => n.online).map(n => n.height || 0);
-  const maxHeight = onlineHeights.length ? Math.max(...onlineHeights) : 0;
+  // Find the highest reported height
+  const maxHeight = Math.max(
+    ...nodeStatuses.filter(n => n.online).map(n => n.height || 0),
+    0
+  );
 
-  const output = statuses.map(node => {
+  // Build readable output for each node
+  const output = nodeStatuses.map(node => {
     if (!node.online) {
-      return `${node.name} : ❌ OFFLINE`;
+      return `${node.name} : ${node.errorType}`;
     }
     if (node.height < maxHeight) {
       return `${node.name} : ✅ ONLINE | Height: ${node.height}, Target Height: ${maxHeight} (SYNCING ⏳)`;
-    } else {
-      return `${node.name} : ✅ ONLINE | Height: ${node.height} (FULLY SYNCED ✅)`;
     }
+    if (node.syncing && node.target_height > node.height) {
+      return `${node.name} : ✅ ONLINE | Height: ${node.height}, Target Height: ${node.target_height} (SYNCING ⏳)`;
+    }
+    return `${node.name} : ✅ ONLINE | Height: ${node.height} (FULLY SYNCED ✅)`;
   });
 
   return output.join('\n');
