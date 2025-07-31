@@ -2,7 +2,6 @@ const axios = require('axios');
 require('dotenv').config();
 const DISCORD_ALERT_CHANNEL_ID = process.env.DISCORD_ALERT_CHANNEL_ID;
 
-// Each item: { offline: false, behind: false, offlineCount: 0 }
 module.exports = async (nodeList, nodeAlertState, telegramBot, ALERT_USER_ID, discordBot) => {
   const pingResults = await Promise.all(nodeList.map(async (node) => {
     try {
@@ -21,6 +20,7 @@ module.exports = async (nodeList, nodeAlertState, telegramBot, ALERT_USER_ID, di
     let prevState = nodeAlertState[i];
     if (typeof prevState.offlineCount !== "number") prevState.offlineCount = 0;
 
+    // Alert to both
     async function sendAlert(alertText) {
       if (telegramBot) await telegramBot.sendMessage(ALERT_USER_ID, alertText);
       if (discordBot && discordBot.channels && discordBot.channels.cache && DISCORD_ALERT_CHANNEL_ID) {
@@ -29,7 +29,7 @@ module.exports = async (nodeList, nodeAlertState, telegramBot, ALERT_USER_ID, di
       }
     }
 
-    // OFFLINE ALERT: 4 minutes (4 cycles, if 1 min interval)
+    // OFFLINE ALERT: only if 4+ consecutive checks (4 min)
     if (!r.online) {
       prevState.offlineCount++;
       if (!prevState.offline && prevState.offlineCount >= 4) {

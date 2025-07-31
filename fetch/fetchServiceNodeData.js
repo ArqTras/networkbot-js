@@ -5,12 +5,12 @@ module.exports = async () => {
         const response = await axios.get('https://explorer.arqma.com/service_nodes');
         const $ = cheerio.load(response.data);
         const activeNodesText = $('body > div:nth-child(3) > h2:nth-child(4)').text().trim();
-        const activeNodes = parseInt(activeNodesText.replace(/\D/g, '')) || null;
+        const activeNodes = parseInt(activeNodesText.replace(/\D/g, ''));
         const awaitingNodesText = $('#service-nodes-awaiting > span:nth-child(1)').text().trim();
-        const awaitingNodes = parseInt(awaitingNodesText.replace(/\D/g, '')) || null;
+        const awaitingNodes = parseInt(awaitingNodesText.replace(/\D/g, ''));
         return { activeNodes, awaitingNodes };
     } catch (error) {
         console.error("Error fetching service node data:", error);
-        return { activeNodes: null, awaitingNodes: null };
+        return { activeNodes: 0, awaitingNodes: 0 };
     }
 };
