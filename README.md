@@ -47,12 +47,6 @@ DISCORD_ALERT_CHANNEL_ID=... # Discord channel ID for alerts
 npm start
 ```
 
-### 5. Run the tests
-
-```bash
-npm test
-```
-
 ---
 
 ## Bot Commands
