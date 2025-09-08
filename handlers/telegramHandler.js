@@ -6,6 +6,7 @@ const daemon_info = require('../commands/daemon_info');
 const network = require('../commands/network');
 const nodes = require('../commands/nodes');
 const restrictCmd = require('../commands/restrict');
+const unrestrictCmd = require('../commands/unrestrict');
 const zmqdiag = require('../commands/zmqdiag');
 const { isBlocked } = require('../utils/blocklist');
 const { isRestricted } = require('../utils/restrictlist');
@@ -39,6 +40,12 @@ module.exports = (TELEGRAM_TOKEN, ALERT_USER_ID) => {
   telegramBot.onText(/^\/restrict(\s+.+)?$/, async (msg) => {
     const text = msg.text || '';
     const resp = await restrictCmd({ msg, text, ALERT_USER_ID });
+    try { await safeSend(msg.chat.id, resp); } catch {}
+  });
+
+  telegramBot.onText(/^\/unrestrict(\s+.+)?$/, async (msg) => {
+    const text = msg.text || '';
+    const resp = await unrestrictCmd({ msg, text, ALERT_USER_ID });
     try { await safeSend(msg.chat.id, resp); } catch {}
   });
 

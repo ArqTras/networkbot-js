@@ -20,6 +20,7 @@ module.exports = (platform) => {
     '⛏️ /pools - Display Arqma mining pools with hashrates',
     '🛠️ /daemon_info - Detailed info (ZMQ-RPC first)',
     '🚫 /restrict <@user|id> - (admin) restrict commands 24h',
+    '🆓 /unrestrict <@user|id> - (admin) remove restriction',
     '❓ /helpme - Show this help message',
     '🖥️ /nodes - Per-node status (ZMQ-RPC first)',
     '🧪 /zmqdiag <NodeName> - Admin ZMQ diagnostics'

@@ -20,7 +20,7 @@ function unifyGetInfo(obj) {
   const out = numOrNull(pick(root, ['outgoing_connections_count','outgoingconnectionscount','outgoing','OutgoingConnectionsCount']));
   const peers = (inc !== null || out !== null) ? (inc || 0) + (out || 0) : null;
 
-  // Do NOT treat status as version. Prefer explicit version fields only.
+  // Only explicit version fields; do not use status.
   const version = pick(root, ['version','daemon_version','full_version']) || pick(res, ['version']);
 
   return { height, target_height: targetHeight, target: targetSec, difficulty, version, top_block_hash: topBlockHash, peers };

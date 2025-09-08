@@ -16,8 +16,18 @@ function addRestricts(records, when = new Date()) {
     if (rec.type === 'username') { const u = normalizeUsername(rec.value); if (u) { store.usernames[u] = when.toISOString(); changed = true; } }
     else if (rec.type === 'id') { const id = String(rec.value || '').trim(); if (id) { store.ids[id] = when.toISOString(); changed = true; } }
   });
-  if (changed) { save(store); const line = records.map(r => r.type === 'username' ? ('username=' + normalizeUsername(r.value)) : ('id=' + String(r.value).trim())).join(', '); fs.appendFileSync(TXT_FILE, '[' + when.toISOString() + '] ' + line + '\n'); }
-  return store;
+  if (changed) { save(store); const line = records.map(r => r.type === 'username' ? ('username=' + normalizeUsername(r.value)) : ('id=' + String(r.value).trim())).join(', '); fs.appendFileSync(TXT_FILE, '[' + when.toISOString() + '] RESTRICT ' + line + '\n'); }
+  return { store, changed };
+}
+
+function removeRestricts(records, when = new Date()) {
+  const store = load(); let changed = false;
+  records.forEach(rec => {
+    if (rec.type === 'username') { const u = normalizeUsername(rec.value); if (u && store.usernames[u]) { delete store.usernames[u]; changed = true; } }
+    else if (rec.type === 'id') { const id = String(rec.value || '').trim(); if (id && store.ids[id]) { delete store.ids[id]; changed = true; } }
+  });
+  if (changed) { save(store); const line = records.map(r => r.type === 'username' ? ('username=' + normalizeUsername(r.value)) : ('id=' + String(r.value).trim())).join(', '); fs.appendFileSync(TXT_FILE, '[' + when.toISOString() + '] UNRESTRICT ' + line + '\n'); }
+  return { store, changed };
 }
 
 function isRestricted(info, now = new Date()) {
@@ -28,4 +38,4 @@ function isRestricted(info, now = new Date()) {
   if (uid && store.ids[uid]) delete store.ids[uid]; if (uname && store.usernames[uname]) delete store.usernames[uname]; save(store); return { restricted: false };
 }
 
-module.exports = { addRestricts, isRestricted };
+module.exports = { addRestricts, removeRestricts, isRestricted };

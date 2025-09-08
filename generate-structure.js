@@ -1,5 +1,11 @@
 // generate-structure.js
-// ArQmA Network Bot — All-in-one generator (ZMQ-RPC first, header+version fallbacks, HTTP fallback, /restrict, /zmqdiag)
+// ArQmA Network Bot — All-in-one project generator
+// - ZMQ-RPC first (port 19995) with robust parsing
+// - Top hash fallback: get_last_block_header
+// - Version fallback: get_version (+ normalization)
+// - Correct hashrate calc, HTTP fallback
+// - /restrict (24h) + /unrestrict, shared across Telegram & Discord
+// - Safe Telegram formatting
 
 const fs = require('fs');
 const path = require('path');
@@ -33,6 +39,7 @@ write('commands/helpme.js',
 "    '⛏️ /pools - Display Arqma mining pools with hashrates',\n" +
 "    '🛠️ /daemon_info - Detailed info (ZMQ-RPC first)',\n" +
 "    '🚫 /restrict <@user|id> - (admin) restrict commands 24h',\n" +
+"    '🆓 /unrestrict <@user|id> - (admin) remove restriction',\n" +
 "    '❓ /helpme - Show this help message',\n" +
 "    '🖥️ /nodes - Per-node status (ZMQ-RPC first)',\n" +
 "    '🧪 /zmqdiag <NodeName> - Admin ZMQ diagnostics'\n" +
@@ -108,7 +115,7 @@ write('utils/zmqRpc.js',
 "  const out = numOrNull(pick(root, ['outgoing_connections_count','outgoingconnectionscount','outgoing','OutgoingConnectionsCount']));\n" +
 "  const peers = (inc !== null || out !== null) ? (inc || 0) + (out || 0) : null;\n" +
 "\n" +
-"  // Do NOT treat status as version. Prefer explicit version fields only.\n" +
+"  // Only explicit version fields; do not use status.\n" +
 "  const version = pick(root, ['version','daemon_version','full_version']) || pick(res, ['version']);\n" +
 "\n" +
 "  return { height, target_height: targetHeight, target: targetSec, difficulty, version, top_block_hash: topBlockHash, peers };\n" +
@@ -359,6 +366,33 @@ write('commands/restrict.js',
 "};\n"
 );
 
+/* ============== commands/unrestrict.js ============== */
+write('commands/unrestrict.js',
+"const { removeRestricts } = require('../utils/restrictlist');\n" +
+"\n" +
+"module.exports = async ({ msg, text, ALERT_USER_ID }) => {\n" +
+"  const callerId = msg.from && msg.from.id;\n" +
+"  if (!callerId || String(callerId) !== String(ALERT_USER_ID)) return '⛔ You are not allowed to use this command.';\n" +
+"  const args = (text || '').split(/\\s+/).slice(1);\n" +
+"  if (!args.length) return 'Usage: /unrestrict <@username|id>';\n" +
+"\n" +
+"  const raw = args[0];\n" +
+"  let username = null, id = null;\n" +
+"  if (/^@/.test(raw)) username = raw.replace(/^@+/, '').trim().toLowerCase();\n" +
+"  else if (/^\\d+$/.test(raw)) id = raw.trim();\n" +
+"  else username = raw.trim().toLowerCase();\n" +
+"  if (!username && !id) return 'Provide a valid @username or numeric id.';\n" +
+"\n" +
+"  const records = [];\n" +
+"  if (username) records.push({ type: 'username', value: username });\n" +
+"  if (id) records.push({ type: 'id', value: String(id) });\n" +
+"  const when = new Date();\n" +
+"  const res = removeRestricts(records, when);\n" +
+"  if (!res.changed) return 'ℹ️ No active restriction found for ' + (username ? '@' + username : (id ? '(id:' + id + ')' : 'given user')) + '.';\n" +
+"  return '✅ Unrestricted: ' + (username ? '@' + username : '') + (id ? ' (id:' + id + ')' : '') + ' — Commands re-enabled on Telegram & Discord.\\nTime: ' + when.toISOString();\n" +
+"};\n"
+);
+
 /* ============== commands/zmqdiag.js ============== */
 write('commands/zmqdiag.js',
 "const nodeList = require('../config/nodeList');\n" +
@@ -396,7 +430,7 @@ write('commands/zmqdiag.js',
 "};\n"
 );
 
-/* ============== fetchers (unchanged) ============== */
+/* ============== fetchers ============== */
 write('fetch/fetchArqPrice.js',
 "const axios = require('axios');\n" +
 "module.exports = async () => {\n" +
@@ -570,7 +604,7 @@ write('utils/blocklist.js',
 "module.exports = { load, save, addBlocks, isBlocked, normalizeUsername };\n"
 );
 
-/* ============== utils/restrictlist.js ============== */
+/* ============== utils/restrictlist.js (add/remove + log) ============== */
 write('utils/restrictlist.js',
 "const fs = require('fs');\n" +
 "const path = require('path');\n" +
@@ -590,8 +624,18 @@ write('utils/restrictlist.js',
 "    if (rec.type === 'username') { const u = normalizeUsername(rec.value); if (u) { store.usernames[u] = when.toISOString(); changed = true; } }\n" +
 "    else if (rec.type === 'id') { const id = String(rec.value || '').trim(); if (id) { store.ids[id] = when.toISOString(); changed = true; } }\n" +
 "  });\n" +
-"  if (changed) { save(store); const line = records.map(r => r.type === 'username' ? ('username=' + normalizeUsername(r.value)) : ('id=' + String(r.value).trim())).join(', '); fs.appendFileSync(TXT_FILE, '[' + when.toISOString() + '] ' + line + '\\n'); }\n" +
-"  return store;\n" +
+"  if (changed) { save(store); const line = records.map(r => r.type === 'username' ? ('username=' + normalizeUsername(r.value)) : ('id=' + String(r.value).trim())).join(', '); fs.appendFileSync(TXT_FILE, '[' + when.toISOString() + '] RESTRICT ' + line + '\\n'); }\n" +
+"  return { store, changed };\n" +
+"}\n" +
+"\n" +
+"function removeRestricts(records, when = new Date()) {\n" +
+"  const store = load(); let changed = false;\n" +
+"  records.forEach(rec => {\n" +
+"    if (rec.type === 'username') { const u = normalizeUsername(rec.value); if (u && store.usernames[u]) { delete store.usernames[u]; changed = true; } }\n" +
+"    else if (rec.type === 'id') { const id = String(rec.value || '').trim(); if (id && store.ids[id]) { delete store.ids[id]; changed = true; } }\n" +
+"  });\n" +
+"  if (changed) { save(store); const line = records.map(r => r.type === 'username' ? ('username=' + normalizeUsername(r.value)) : ('id=' + String(r.value).trim())).join(', '); fs.appendFileSync(TXT_FILE, '[' + when.toISOString() + '] UNRESTRICT ' + line + '\\n'); }\n" +
+"  return { store, changed };\n" +
 "}\n" +
 "\n" +
 "function isRestricted(info, now = new Date()) {\n" +
@@ -602,10 +646,10 @@ write('utils/restrictlist.js',
 "  if (uid && store.ids[uid]) delete store.ids[uid]; if (uname && store.usernames[uname]) delete store.usernames[uname]; save(store); return { restricted: false };\n" +
 "}\n" +
 "\n" +
-"module.exports = { addRestricts, isRestricted };\n"
+"module.exports = { addRestricts, removeRestricts, isRestricted };\n"
 );
 
-/* ============== alerts/nodeAlerter.js ============== */
+/* ============== alerts/nodeAlerter.js (HTTP poll) ============== */
 write('alerts/nodeAlerter.js',
 "const axios = require('axios');\n" +
 "require('dotenv').config();\n" +
@@ -650,7 +694,7 @@ write('alerts/nodeAlerter.js',
 "};\n"
 );
 
-/* ============== handlers/telegramHandler.js (plain text + <pre> for diag) ============== */
+/* ============== handlers/telegramHandler.js (safe sends + /unrestrict) ============== */
 write('handlers/telegramHandler.js',
 "const TelegramBot = require('node-telegram-bot-api');\n" +
 "const helpme = require('../commands/helpme');\n" +
@@ -660,6 +704,7 @@ write('handlers/telegramHandler.js',
 "const network = require('../commands/network');\n" +
 "const nodes = require('../commands/nodes');\n" +
 "const restrictCmd = require('../commands/restrict');\n" +
+"const unrestrictCmd = require('../commands/unrestrict');\n" +
 "const zmqdiag = require('../commands/zmqdiag');\n" +
 "const { isBlocked } = require('../utils/blocklist');\n" +
 "const { isRestricted } = require('../utils/restrictlist');\n" +
@@ -693,6 +738,12 @@ write('handlers/telegramHandler.js',
 "  telegramBot.onText(/^\\/restrict(\\s+.+)?$/, async (msg) => {\n" +
 "    const text = msg.text || '';\n" +
 "    const resp = await restrictCmd({ msg, text, ALERT_USER_ID });\n" +
+"    try { await safeSend(msg.chat.id, resp); } catch {}\n" +
+"  });\n" +
+"\n" +
+"  telegramBot.onText(/^\\/unrestrict(\\s+.+)?$/, async (msg) => {\n" +
+"    const text = msg.text || '';\n" +
+"    const resp = await unrestrictCmd({ msg, text, ALERT_USER_ID });\n" +
 "    try { await safeSend(msg.chat.id, resp); } catch {}\n" +
 "  });\n" +
 "\n" +
@@ -761,7 +812,7 @@ write('handlers/discordHandler.js',
 "};\n"
 );
 
-/* ============== config/nodeList.js (no SNNAT; add ZMQ hosts) ============== */
+/* ============== config/nodeList.js (edit hosts, SNNAT removed) ============== */
 write('config/nodeList.js',
 "// Fill hosts with public IPs/hostnames where ZMQ-RPC listens on port 19995\n" +
 "module.exports = [\n" +
@@ -806,8 +857,8 @@ write('.env',
 write('package.json',
 "{\n" +
 "  \"name\": \"arqma-bot\",\n" +
-"  \"version\": \"2.5.0\",\n" +
-"  \"description\": \"Discord & Telegram bot for ArQmA network (ZMQ-RPC first with header+version fallbacks, HTTP fallback, /restrict, /zmqdiag).\",\n" +
+"  \"version\": \"2.6.0\",\n" +
+"  \"description\": \"Discord & Telegram bot for ArQmA network (ZMQ-RPC first with header+version fallbacks, HTTP fallback, /restrict & /unrestrict, /zmqdiag).\",\n" +
 "  \"main\": \"bot.js\",\n" +
 "  \"type\": \"commonjs\",\n" +
 "  \"scripts\": { \"start\": \"node bot.js\" },\n" +
@@ -822,29 +873,36 @@ write('package.json',
 "}\n"
 );
 
-/* ============== README.md ============== */
-write('README.md',
-'# ArQmA Network Bot (ZMQ-RPC first, robust)\\n\\n' +
-'- Primary data via ZMQ-RPC tcp://<host>:19995 for /nodes and /daemon_info.\\n' +
-'- If get_info top hash is zero/missing, bot calls get_last_block_header and uses that hash.\\n' +
-'- If version is missing, bot calls get_version and normalizes it (e.g., major.minor).\\n' +
-'- Correct hashrate = difficulty / target (fallback target = 120s).\\n' +
-'- HTTP fallback only if ZMQ-RPC yields no meaningful data.\\n' +
-'- /restrict (24h) logged in data/restricted.txt and enforced on Telegram & Discord.\\n' +
-'- /zmqdiag <NodeName> for admin diagnostics (pattern used + raw JSON).\\n\\n' +
-'Setup:\\n' +
-'1) node generate-structure.js\\n' +
-'2) npm install\\n' +
-'3) fill .env\\n' +
-'4) run daemons with --zmq-rpc-bind-ip 0.0.0.0 --zmq-rpc-bind-port 19995\\n' +
-'5) open TCP 19995\\n' +
-'6) edit config/nodeList.js with public hosts\\n' +
-'7) npm start\\n'
-);
+/* ============== README.md (real newlines) ============== */
+write('README.md', `# ArQmA Network Bot (ZMQ-RPC first, robust)
 
-console.log('✅ Project generated. Next steps:');
-console.log('1) npm install');
-console.log('2) fill .env');
-console.log('3) ensure daemons expose ZMQ-RPC on 19995');
-console.log('4) npm start');
+- Primary data via ZMQ-RPC \`tcp://HOST:19995\` for \`/nodes\` and \`/daemon_info\`.
+- If \`get_info\` top hash is zero/missing, the bot calls \`get_last_block_header\` and uses that hash.
+- If version is missing, the bot calls \`get_version\` and normalizes it (e.g., \`major.minor\`).
+- Correct hashrate: \`difficulty / target\` (fallback \`target = 120s\`).
+- HTTP fallback only if ZMQ-RPC yields no meaningful data.
+- \`/restrict <@user|id>\` (admin) restricts a user for 24h — enforced on Telegram & Discord; logs to \`data/restricted.txt\`.
+- **\`/unrestrict <@user|id>\` (admin)** removes the restriction immediately.
+- \`/zmqdiag <NodeName>\` for admin diagnostics (pattern used + raw JSON pretty).
+
+## Setup
+
+1) \`node generate-structure.js\`  
+2) \`npm install\`  
+3) Fill \`.env\`  
+4) Run daemons with:
+   \`\`\`
+   --zmq-rpc-bind-ip 0.0.0.0 --zmq-rpc-bind-port 19995
+   \`\`\`
+5) Open TCP 19995  
+6) Edit \`config/nodeList.js\` with public hosts  
+7) \`npm start\`
+
+## Notes
+
+- \`/nodes\` and \`/daemon_info\` use ZMQ-RPC first; if the endpoint does not answer with meaningful JSON, an HTTP \`/get_info\` fallback is used.
+- Telegram messages are sent as plain text; diagnostics are wrapped in HTML \`<pre>\` with escaping to avoid Markdown parse errors.
+`);
+
+console.log('✅ Project generated.\nNext steps:\n  1) npm install\n  2) fill .env\n  3) ensure daemons expose ZMQ-RPC on 19995\n  4) edit config/nodeList.js hosts\n  5) npm start');
 
