@@ -6,18 +6,13 @@ const fetchServiceNodeData = require('../fetch/fetchServiceNodeData');
 const formatNetworkStats = require('../utils/formatNetworkStats');
 
 module.exports = async () => {
-  const networkData = await fetchNetworkInfo();
-  const emissionData = await fetchEmissionData();
-  const arqPrice = await fetchArqPrice();
-  const btcToUsd = await fetchBtcToUsd();
-  const { activeNodes, awaitingNodes } = await fetchServiceNodeData();
+  const [networkData, emissionData, arqPrice, btcToUsd, sn] = await Promise.all([
+    fetchNetworkInfo(), fetchEmissionData(), fetchArqPrice(), fetchBtcToUsd(), fetchServiceNodeData()
+  ]);
+  const activeNodes = sn ? sn.activeNodes : undefined;
+  const awaitingNodes = sn ? sn.awaitingNodes : undefined;
 
   return formatNetworkStats({
-      networkData,
-      emissionData,
-      arqPrice,
-      btcToUsd,
-      activeNodes,
-      awaitingNodes
-  }) || "Failed to fetch network data.";
+    networkData, emissionData, arqPrice, btcToUsd, activeNodes, awaitingNodes
+  }) || 'Failed to fetch network data.';
 };

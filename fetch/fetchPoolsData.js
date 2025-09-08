@@ -1,32 +1,22 @@
 const axios = require('axios');
 module.exports = async () => {
-    try {
-        const response = await axios.get('https://miningpoolstats.stream/arqma');
-        const tMatch = response.data.match(/var last_time = "([^"]+)"/);
-
-        if (!tMatch) return "Failed to fetch pool data.";
-
-        const t = tMatch[1];
-        const poolsQueryUrl = `https://data.miningpoolstats.stream/data/arqma.js?t=${t}`;
-        const poolsQuery = await axios.get(poolsQueryUrl);
-        const poolsInfo = poolsQuery.data.data || [];
-
-        const sortedPools = poolsInfo.sort((a, b) => b.hashrate - a.hashrate);
-        let totalHashrate = 0;
-        const poolLines = sortedPools.map(pool => {
-            const name = pool.pool_id || "Unknown Pool";
-            const hashrate = pool.hashrate || 0;
-            totalHashrate += hashrate;
-            return hashrate >= 1_000_000
-                ? `⛏️ ${name}: ${(hashrate / 1_000_000).toFixed(2)} MH/s`
-                : hashrate >= 1_000
-                ? `⛏️ ${name}: ${(hashrate / 1_000).toFixed(2)} KH/s`
-                : `⛏️ ${name}: ${hashrate} H/s`;
-        }).join('\n');
-
-        return `🌐 Total Pool Hashrate: ${(totalHashrate / 1_000_000).toFixed(2)} MH/s\n\n${poolLines}`;
-    } catch (error) {
-        console.error("Error fetching pool data:", error);
-        return "Failed to fetch pool data.";
-    }
+  try {
+    const response = await axios.get('https://miningpoolstats.stream/arqma');
+    const tMatch = response.data && response.data.match(/var last_time = "([^"]+)"/);
+    if (!tMatch) return 'Failed to fetch pool data.';
+    const t = tMatch[1];
+    const poolsQueryUrl = 'https://data.miningpoolstats.stream/data/arqma.js?t=' + t;
+    const poolsQuery = await axios.get(poolsQueryUrl);
+    const poolsInfo = (poolsQuery.data && poolsQuery.data.data) ? poolsQuery.data.data : [];
+    const sorted = poolsInfo.sort((a, b) => (b.hashrate || 0) - (a.hashrate || 0));
+    let total = 0;
+    const lines = sorted.map(p => {
+      const name = p.pool_id || 'Unknown Pool';
+      const h = p.hashrate || 0; total += h;
+      if (h >= 1000000) return '⛏️ ' + name + ': ' + (h / 1000000).toFixed(2) + ' MH/s';
+      if (h >= 1000) return '⛏️ ' + name + ': ' + (h / 1000).toFixed(2) + ' KH/s';
+      return '⛏️ ' + name + ': ' + h + ' H/s';
+    }).join('\n');
+    return '🌐 Total Pool Hashrate: ' + (total / 1000000).toFixed(2) + ' MH/s\n\n' + lines;
+  } catch { return 'Failed to fetch pool data.'; }
 };
