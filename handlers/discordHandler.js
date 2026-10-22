@@ -105,6 +105,6 @@ module.exports = (DISCORD_TOKEN, telegramBot, ALERT_USER_ID) => {
     }
   });
 
-  discordBot.login(DISCORD_TOKEN).catch(err => console.error('Discord login failed:', err));
+  discordBot.login(String(DISCORD_TOKEN || '').trim()).catch(err => console.error('Discord login failed:', err));
   return discordBot;
 };
