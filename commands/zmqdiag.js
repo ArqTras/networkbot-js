@@ -28,6 +28,5 @@ module.exports = async ({ name, ALERT_USER_ID, fromId }) => {
   lines.push('Raw JSON (pretty):');
   if (raw) { try { lines.push(JSON.stringify(raw, null, 2)); } catch { lines.push('(raw present but failed to stringify)'); } }
   else { lines.push('(no JSON parsed)'); }
-
   return lines.join('\n');
 };

@@ -1,61 +1,161 @@
 const TelegramBot = require('node-telegram-bot-api');
+
+// Statyczne require zamiast dynamicznego - lepsza wydajność i wcześniejsze wykrywanie błędów
 const helpme = require('../commands/helpme');
 const links = require('../commands/links');
-const pools = require('../commands/pools');
-const daemon_info = require('../commands/daemon_info');
-const network = require('../commands/network');
 const nodes = require('../commands/nodes');
-const restrictCmd = require('../commands/restrict');
-const unrestrictCmd = require('../commands/unrestrict');
-const zmqdiag = require('../commands/zmqdiag');
-const { isBlocked } = require('../utils/blocklist');
-const { isRestricted } = require('../utils/restrictlist');
 
-function escapeHtml(s) { return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
-function formatRemaining(ms) { const h = Math.floor(ms / 3600000); const m = Math.floor((ms % 3600000) / 60000); const s = Math.floor((ms % 60000) / 1000); return `${h}h ${m}m ${s}s`; }
+// Opcjonalne komendy (mogą nie istnieć)
+let network, daemon_info, pools, zmqdiag, sn, trade;
+try { network = require('../commands/network'); } catch {}
+try { daemon_info = require('../commands/daemon_info'); } catch {}
+try { pools = require('../commands/pools'); } catch {}
+try { zmqdiag = require('../commands/zmqdiag'); } catch {}
+try { sn = require('../commands/sn'); } catch {}
+try { trade = require('../commands/trade'); } catch {}
 
-module.exports = (TELEGRAM_TOKEN, ALERT_USER_ID) => {
-  const telegramBot = new TelegramBot(TELEGRAM_TOKEN, { polling: true });
-
-  async function safeSend(chatId, text) { return telegramBot.sendMessage(chatId, text, { disable_web_page_preview: true }); }
-  async function sendPre(chatId, text) { return telegramBot.sendMessage(chatId, `<pre>${escapeHtml(text)}</pre>`, { parse_mode: 'HTML', disable_web_page_preview: true }); }
-
-  function guard(handler) {
-    return async (msg, match) => {
-      const blocked = isBlocked({ id: msg.from?.id, username: msg.from?.username });
-      if (blocked) { try { await safeSend(msg.chat.id, '⛔ You are blocked from using commands.'); } catch {} return; }
-      const rest = isRestricted({ id: msg.from?.id, username: msg.from?.username });
-      if (rest.restricted) { try { await safeSend(msg.chat.id, `🚫 You are restricted from using commands for ${formatRemaining(rest.remainingMs)}.`); } catch {} return; }
-      return handler(msg, match);
-    };
+function sendChunks(bot, chatId, text){
+  if (!text) return;
+  const limit=3800;
+  
+  // Funkcja do bezpiecznego wysyłania z fallback na plain text
+  const safeSend = async (chunk, attempt = 0) => {
+    try {
+      // Próbuj z Markdown
+      await bot.sendMessage(chatId, chunk, { parse_mode: 'Markdown', disable_web_page_preview: true });
+    } catch (e) {
+      if (e.message && e.message.includes('parse entities')) {
+        // Jeśli błąd parsowania, wyślij jako plain text
+        try {
+          await bot.sendMessage(chatId, chunk, { disable_web_page_preview: true });
+        } catch (e2) {
+          console.error('Error sending plain text message:', e2.message || e2);
+        }
+      } else {
+        throw e; // Rzuć dalej inne błędy
+      }
+    }
+  };
+  
+  // Podziel na chunki i wyślij
+  for (let i=0;i<text.length;i+=limit){
+    const chunk = text.slice(i,i+limit);
+    safeSend(chunk).catch(e => {
+      console.error('Error in sendChunks:', e.message || e);
+    });
   }
+}
 
-  telegramBot.onText(/\/helpme/, guard((msg) => safeSend(msg.chat.id, helpme('telegram'))));
-  telegramBot.onText(/\/links/,  guard((msg) => safeSend(msg.chat.id, links())));
-  telegramBot.onText(/\/pools/,  guard(async (msg) => safeSend(msg.chat.id, await pools())));
-  telegramBot.onText(/\/daemon_info/, guard(async (msg) => safeSend(msg.chat.id, await daemon_info())));
-  telegramBot.onText(/\/network/, guard(async (msg) => safeSend(msg.chat.id, await network())));
-  telegramBot.onText(/\/nodes/,   guard(async (msg) => safeSend(msg.chat.id, await nodes())));
+// Singleton - zapobiegaj wielokrotnemu uruchomieniu
+let botInstance = null;
 
-  telegramBot.onText(/^\/restrict(\s+.+)?$/, async (msg) => {
-    const text = msg.text || '';
-    const resp = await restrictCmd({ msg, text, ALERT_USER_ID });
-    try { await safeSend(msg.chat.id, resp); } catch {}
+module.exports = function startTelegram(tokenParam, alertUserIdParam){
+  // Jeśli bot już jest uruchomiony, zwróć istniejącą instancję
+  if (botInstance) {
+    console.log('⚠️  Telegram bot already running, returning existing instance');
+    return botInstance;
+  }
+  
+  // Obsługa parametrów (dla kompatybilności z bot.js, start-all.js)
+  const token = tokenParam || process.env.TELEGRAM_TOKEN || process.env.TELEGRAM_BOT_TOKEN;
+  if (!token) { console.log('⚠️  TELEGRAM_TOKEN not set – Telegram disabled.'); return null; }
+  
+  try {
+    const bot = new TelegramBot(token, { polling: true });
+    botInstance = bot; // Zapisz instancję
+  
+  // Logowanie wszystkich wiadomości dla debugowania
+  bot.on('message', (msg) => {
+    if (process.env.NODE_ENV === 'development') {
+      console.log(`[Telegram] Message from ${msg.from?.username || msg.from?.id} in chat ${msg.chat.id}: ${msg.text?.substring(0, 50)}`);
+    }
+  });
+  
+  const wrap = (fn)=>(async (msg, match)=>{
+    if (!fn) return;
+    const reply = async (t)=>{
+      try {
+        await sendChunks(bot, msg.chat.id, t);
+      } catch (e) {
+        console.error('Error sending message:', e.message || e);
+      }
+    };
+    const args = (match && match[1]) || '';
+    try{ 
+      const result = await fn({ reply, from: msg.from || {}, args });
+      // Jeśli funkcja zwraca string zamiast używać reply, wyślij go
+      if (result && typeof result === 'string' && result.trim()) {
+        await reply(result);
+      }
+    }
+    catch(e){ 
+      console.error('Telegram handler error:', e);
+      try {
+        await bot.sendMessage(msg.chat.id, '❌ Wystąpił błąd podczas wykonywania komendy.');
+      } catch {}
+    }
   });
 
-  telegramBot.onText(/^\/unrestrict(\s+.+)?$/, async (msg) => {
-    const text = msg.text || '';
-    const resp = await unrestrictCmd({ msg, text, ALERT_USER_ID });
-    try { await safeSend(msg.chat.id, resp); } catch {}
-  });
+  bot.onText(/^\/helpme(?:@.+)?$/i, wrap(async ({ reply }) => {
+    // helpme używa reply() wewnątrz, więc nie zwracamy tekstu
+    await helpme({ reply });
+  }));
+  bot.onText(/^\/links(?:@.+)?$/i, wrap(async ({ reply }) => {
+    const result = links();
+    const text = Array.isArray(result) ? result.join('\n') : (result || '');
+    if (text && typeof text === 'string') return text;
+  }));
+  bot.onText(/^\/nodes(?:@.+)?$/i, wrap(async ({ reply }) => {
+    const text = await nodes();
+    if (text && typeof text === 'string') return text;
+  }));
 
-  telegramBot.onText(/^\/zmqdiag\s+(\S+)/, async (msg, match) => {
-    const name = match && match[1];
-    const fromId = msg.from && msg.from.id;
-    const resp = await zmqdiag({ name, ALERT_USER_ID, fromId });
-    try { await sendPre(msg.chat.id, resp); } catch {}
-  });
+  // Opcjonalne komendy
+  if (network) bot.onText(/^\/network(?:@.+)?$/i, wrap(async ({ reply }) => {
+    const text = await network();
+    if (text && typeof text === 'string') return text;
+  }));
+  if (daemon_info) bot.onText(/^\/daemon_info(?:@.+)?$/i, wrap(async ({ reply }) => {
+    const text = await daemon_info();
+    if (text && typeof text === 'string') return text;
+  }));
+  if (pools) bot.onText(/^\/pools(?:@.+)?$/i, wrap(async ({ reply }) => {
+    const text = await pools();
+    if (text && typeof text === 'string') return text;
+  }));
+  if (zmqdiag) bot.onText(/^\/zmqdiag(?:@.+)?\s*(.*)$/i, wrap(async (ctx) => {
+    const text = await zmqdiag(ctx);
+    if (text && typeof text === 'string') return text;
+  }));
+  if (sn) bot.onText(/^\/sn(?:@.+)?$/i, wrap(async ({ reply }) => {
+    const text = await sn();
+    if (text && typeof text === 'string') return text;
+  }));
+  if (trade) bot.onText(/^\/trade(?:@.+)?$/i, wrap(async ({ reply }) => {
+    const text = await trade();
+    if (text && typeof text === 'string') return text;
+  }));
 
-  console.log('Telegram bot is ready!');
-  return telegramBot;
+    console.log('✅ Telegram started');
+    
+    // Service node monitor will be started from start.js after both bots are ready
+    // to avoid duplicate monitoring
+    
+    // Obsługa błędów polling
+    bot.on('polling_error', (error) => {
+      console.error('[Telegram Polling Error]', error.message || error);
+      if (error.code === 'ETELEGRAM' && error.message.includes('409')) {
+        console.error('⚠️  Multiple bot instances detected! Make sure only one instance is running.');
+        console.error('   Stopping this instance to prevent conflicts...');
+        bot.stopPolling();
+        botInstance = null;
+      }
+    });
+    
+    return bot;
+  } catch (error) {
+    console.error('Error creating Telegram bot:', error.message || error);
+    botInstance = null;
+    return null;
+  }
 };

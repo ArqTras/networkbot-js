@@ -20,9 +20,7 @@ function unifyGetInfo(obj) {
   const out = numOrNull(pick(root, ['outgoing_connections_count','outgoingconnectionscount','outgoing','OutgoingConnectionsCount']));
   const peers = (inc !== null || out !== null) ? (inc || 0) + (out || 0) : null;
 
-  // Only explicit version fields; do not use status.
   const version = pick(root, ['version','daemon_version','full_version']) || pick(res, ['version']);
-
   return { height, target_height: targetHeight, target: targetSec, difficulty, version, top_block_hash: topBlockHash, peers };
 }
 
@@ -69,6 +67,20 @@ function buildPatterns(method, paramsObj) {
 }
 
 async function tryReqPatterns(endpoint, method, paramsObj, timeoutMs) {
+  // Walidacja wejścia
+  if (!endpoint || typeof endpoint !== 'string') {
+    if (process.env.NODE_ENV === 'development') {
+      console.error('Invalid endpoint:', endpoint);
+    }
+    return { used: null, raw: null };
+  }
+  if (!method || typeof method !== 'string') {
+    if (process.env.NODE_ENV === 'development') {
+      console.error('Invalid method:', method);
+    }
+    return { used: null, raw: null };
+  }
+  
   const sock = new zmq.Request(); sock.receiveHighWaterMark = 1000;
   const timer = setTimeout(() => { try { sock.close(); } catch {} }, timeoutMs);
   let used = null, raw = null;
@@ -76,7 +88,11 @@ async function tryReqPatterns(endpoint, method, paramsObj, timeoutMs) {
     sock.connect(endpoint);
     const patterns = buildPatterns(method, paramsObj);
     for (const p of patterns) { const resp = await tryPattern(sock, p.payload); if (resp) { used = p.name; raw = resp; break; } }
-  } catch {}
+  } catch (e) {
+    if (process.env.NODE_ENV === 'development') {
+      console.error('ZMQ request error:', e.message || e);
+    }
+  }
   clearTimeout(timer); try { sock.close(); } catch {}
   return { used, raw };
 }
@@ -84,12 +100,10 @@ async function tryReqPatterns(endpoint, method, paramsObj, timeoutMs) {
 async function getInfoZmq(host, port = 19995, timeoutMs = 4000) {
   const endpoint = 'tcp://' + host + ':' + port;
 
-  // 1) get_info
   const infoCall = await tryReqPatterns(endpoint, 'get_info', {}, timeoutMs);
   const unified = unifyGetInfo(infoCall.raw) || {};
   let used = infoCall.used || null;
 
-  // 2) Fill top hash/height/difficulty via header if missing or zero
   let headerRaw = null, headerUsed = null;
   if (!unified.top_block_hash || isZeroHash(unified.top_block_hash)) {
     const mlist = ['get_last_block_header', 'getlastblockheader'];
@@ -104,7 +118,6 @@ async function getInfoZmq(host, port = 19995, timeoutMs = 4000) {
     if (headerUsed) used = (used ? used + '; ' : '') + headerUsed;
   }
 
-  // 3) Fill version via get_version if missing
   if (!normalizeVersionField(unified.version)) {
     const vlist = ['get_version', 'getversion'];
     for (const m of vlist) {
@@ -116,8 +129,43 @@ async function getInfoZmq(host, port = 19995, timeoutMs = 4000) {
       }
     }
   }
-
   return { unified, raw: { get_info: infoCall.raw, header: headerRaw }, used };
 }
 
-module.exports = { getInfoZmq };
+// ZMQ get_service_nodes (for /sn)
+async function getServiceNodesZmq(host, port = 19995, timeoutMs = 4000) {
+  const endpoint = 'tcp://' + host + ':' + port;
+  const resp = await tryReqPatterns(endpoint, 'get_service_nodes', {}, timeoutMs);
+  if (!resp.raw) {
+    if (process.env.NODE_ENV === 'development') {
+      console.error(`[ZMQ] No response for get_service_nodes from ${host}:${port}`);
+    }
+    return { used: null, body: null };
+  }
+  
+  // Próbuj różne struktury odpowiedzi
+  const root = resp.raw.result || resp.raw;
+  let states = [];
+  
+  if (Array.isArray(root.service_node_states)) {
+    states = root.service_node_states;
+  } else if (Array.isArray(root.service_nodes)) {
+    states = root.service_nodes;
+  } else if (Array.isArray(root)) {
+    states = root;
+  } else if (root && typeof root === 'object') {
+    // Sprawdź czy może być zagnieżdżone
+    const nested = root.service_node_states || root.service_nodes || root.states;
+    if (Array.isArray(nested)) {
+      states = nested;
+    }
+  }
+  
+  if (process.env.NODE_ENV === 'development' && states.length === 0 && resp.raw) {
+    console.log(`[ZMQ] get_service_nodes response structure:`, JSON.stringify(resp.raw).substring(0, 200));
+  }
+  
+  return { used: resp.used || 'get_service_nodes', body: { service_node_states: states } };
+}
+
+module.exports = { getInfoZmq, getServiceNodesZmq, tryReqPatterns };

@@ -1,16 +1,17 @@
 {
   "name": "arqma-bot",
-  "version": "2.6.0",
-  "description": "Discord & Telegram bot for ArQmA network (ZMQ-RPC first with header+version fallbacks, HTTP fallback, /restrict & /unrestrict, /zmqdiag).",
-  "main": "bot.js",
+  "version": "3.5.0",
+  "description": "Discord & Telegram bot for ArQmA network (ZMQ-first RPC).",
+  "main": "start.js",
   "type": "commonjs",
-  "scripts": { "start": "node bot.js" },
+  "scripts": {
+    "start": "node start.js"
+  },
   "dependencies": {
-    "axios": "^1.7.7",
-    "cheerio": "^1.1.0",
+    "axios": "^1.12.2",
     "discord.js": "^14.16.3",
     "dotenv": "^16.4.5",
     "node-telegram-bot-api": "^0.66.0",
-    "zeromq": "^6.0.0"
+    "zeromq": "^6.5.0"
   }
 }

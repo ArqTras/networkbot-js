@@ -1,0 +1,16 @@
+services:
+  arqma-bot:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: arqma-bot
+    restart: unless-stopped
+    network_mode: "host"     # host networking (Linux only)
+    environment:
+      MAP_PORT: 8899
+      MAP_REGEN_MS: 600000   # 10 minutes
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+      # If you prefer not to bake .env into the image, uncomment:
+      # - ./.env:/app/.env:ro

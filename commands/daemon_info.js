@@ -25,7 +25,7 @@ function fmt(v, suffix) { return (v === null || v === undefined) ? 'Data unavail
 function computeHashrate(difficulty, targetSec) {
   const t = (typeof targetSec === 'number' && targetSec > 0) ? targetSec : BLOCK_TIME_SECONDS;
   if (typeof difficulty !== 'number' || difficulty <= 0) return null;
-  return (difficulty / t / 1000000).toFixed(2) + ' MH/s';
+  return (difficulty / t / 1e6).toFixed(2) + ' MH/s';
 }
 function isMeaningful(z) { return !!(z && (typeof z.height === 'number' || typeof z.difficulty === 'number' || z.top_block_hash)); }
 
